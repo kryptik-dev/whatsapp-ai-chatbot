@@ -25,8 +25,16 @@ function savePingUsers(users) {
     fs.writeFileSync(PING_USERS_FILE, JSON.stringify(users, null, 2));
 }
 
-app.get('/health', (req, res) => {
-    res.status(200).send('Bot is running');
+app.get('/', (req, res) => {
+    res.send(`
+        <html>
+            <head><title>WhatsApp Discord Bot</title></head>
+            <body style="font-family: sans-serif; text-align: center; margin-top: 10%;">
+                <h1>🤖 WhatsApp Discord Bot is running!</h1>
+                <p>If you see this page, the bot server is online and healthy.</p>
+            </body>
+        </html>
+    `);
 });
 
 const PORT = process.env.PORT || 3000;
@@ -168,7 +176,7 @@ function processAndSplitText(text) {
 async function sendNextChunk(phoneNumber, chat) {
     if (!outgoingMessageQueues.has(phoneNumber)) {
         if (typeof chat.sendStateIdle === 'function') await chat.sendStateIdle();
-        return; 
+        return;
     }
 
     const queue = outgoingMessageQueues.get(phoneNumber);
@@ -184,10 +192,10 @@ async function sendNextChunk(phoneNumber, chat) {
         if (typeof chat.sendStateTyping === 'function') {
             await chat.sendStateTyping();
         }
-        
+
         const typingDuration = Math.random() * (12000) + 3000; // Random delay between 3 and 15 seconds
         await new Promise(res => setTimeout(res, typingDuration));
-        
+
         // Check again for interruption after the delay
         if (!outgoingMessageQueues.has(phoneNumber)) {
             if (typeof chat.sendStateIdle === 'function') await chat.sendStateIdle();
@@ -237,7 +245,7 @@ whatsappClient.on('message', async (message) => {
         // Add user message and then get the fresh memory
         await addMessage(phoneNumber, { role: 'user', content: message.body });
         let memory = await getUserMemory(phoneNumber);
-        
+
         // --- Summarization with FreeGPT3 ---
         const currentCount = (userMessageCount.get(phoneNumber) || 0) + 1;
         userMessageCount.set(phoneNumber, currentCount);
@@ -254,12 +262,12 @@ whatsappClient.on('message', async (message) => {
                 console.error('FreeGPT3 summarization error:', err);
             });
         }
-        
+
         // --- Removed Automatic Summarization Logic ---
         // Instead, always use last 20 messages for context
         const recentHistory = memory.history.slice(-20); // Use last 20 messages for immediate context
         const formattedHistory = recentHistory.map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`).join('\n');
-        
+
         const prompt = `${systemPrompt}\n\n--- Recent Conversation ---\n${formattedHistory}\nUser: ${message.body}\nAssistant:`;
 
         let aiResponse = null;
@@ -299,7 +307,7 @@ whatsappClient.on('message', async (message) => {
                 }
             }
         }
-    
+
         let targetChannel;
         const stalkedChannelName = `stalk-${phoneNumber}`;
         const stalkedChannel = discordClient.channels.cache.find(channel => channel.name === stalkedChannelName);
@@ -456,7 +464,8 @@ discordClient.on('interactionCreate', async (interaction) => {
         }
         const recipient = interaction.options.getString('phonenumber');
         const text = interaction.options.getString('message');
-        const recipientId = `${recipient}@c.us`;
+        const cleanRecipient = recipient.replace(/^\+/, '');
+        const recipientId = `${cleanRecipient}@c.us`;
 
         try {
             await whatsappClient.sendMessage(recipientId, text);
@@ -499,7 +508,7 @@ discordClient.on('interactionCreate', async (interaction) => {
 
 discordClient.login(token);
 
-whatsappClient.initialize(); 
+whatsappClient.initialize();
 
 // --- Daily Random WhatsApp Message Scheduler ---
 function scheduleDailyWhatsAppMessages() {
@@ -531,10 +540,11 @@ async function sendRandomWhatsAppMessages() {
                 { headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiApiKey } }
             );
             const aiMessage = geminiRes.data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || 'hey';
-            const chatId = `${phoneNumber}@c.us`;
+            const cleanNumber = phoneNumber.replace(/^\+/, '');
+            const chatId = `${cleanNumber}@c.us`;
             await whatsappClient.sendMessage(chatId, aiMessage);
         } catch (err) {
-            console.error('Failed to send random WhatsApp message:', err);
+            console.error(`Failed to send random WhatsApp message to ${phoneNumber}:`, err);
         }
     }
 } 
