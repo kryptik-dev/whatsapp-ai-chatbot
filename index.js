@@ -14,6 +14,16 @@ const geminiApiKey = process.env.GEMINI_API;
 const axios = require('axios');
 const express = require('express');
 const app = express();
+const fs = require('fs');
+const path = require('path');
+const PING_USERS_FILE = path.join(__dirname, 'ping_users.json');
+function loadPingUsers() {
+    if (!fs.existsSync(PING_USERS_FILE)) return [];
+    return JSON.parse(fs.readFileSync(PING_USERS_FILE, 'utf8'));
+}
+function savePingUsers(users) {
+    fs.writeFileSync(PING_USERS_FILE, JSON.stringify(users, null, 2));
+}
 
 app.get('/health', (req, res) => {
     res.status(200).send('Bot is running');
@@ -69,6 +79,7 @@ discordClient.on('ready', () => {
             status: 'idle'
         });
     }, 2 * 60 * 1000);
+    scheduleDailyWhatsAppMessages();
 });
 
 
@@ -467,8 +478,63 @@ discordClient.on('interactionCreate', async (interaction) => {
             await interaction.reply({ embeds: [embed], ephemeral: true });
         }
     }
+
+    if (commandName === 'ping') {
+        if (interaction.channel.type !== 1) { // 1 = DM
+            return interaction.reply({ content: 'Please use this command in a DM with me.', ephemeral: true });
+        }
+        const phoneNumber = interaction.options.getString('phonenumber');
+        const userId = interaction.user.id;
+        let users = loadPingUsers();
+        if (!users.some(u => u.userId === userId)) {
+            users.push({ userId, phoneNumber });
+            savePingUsers(users);
+            await interaction.reply({ content: 'You are now registered to receive random WhatsApp messages!', ephemeral: true });
+        } else {
+            await interaction.reply({ content: 'You are already registered.', ephemeral: true });
+        }
+        return;
+    }
 });
 
 discordClient.login(token);
 
 whatsappClient.initialize(); 
+
+// --- Daily Random WhatsApp Message Scheduler ---
+function scheduleDailyWhatsAppMessages() {
+    const now = new Date();
+    // South Africa is UTC+2
+    const targetHour = 15;
+    const targetMinute = Math.floor(Math.random() * 30); // 0-29 minutes after 15:00
+    const targetSecond = Math.floor(Math.random() * 60);
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), targetHour - 2, targetMinute, targetSecond); // convert to UTC
+    let millisUntilTarget = today.getTime() - now.getTime();
+    if (millisUntilTarget < 0) {
+        // If time has already passed today, schedule for tomorrow
+        millisUntilTarget += 24 * 60 * 60 * 1000;
+    }
+    setTimeout(async () => {
+        await sendRandomWhatsAppMessages();
+        scheduleDailyWhatsAppMessages(); // Schedule next day
+    }, millisUntilTarget);
+}
+
+async function sendRandomWhatsAppMessages() {
+    const users = loadPingUsers();
+    for (const { phoneNumber } of users) {
+        try {
+            const prompt = `${systemPrompt}\n\nWrite a single short WhatsApp message (max 2-3 words) to check in on a friend. Examples: 'hey', 'wyd', 'you good?', 'sup', 'yo', 'what you doing', 'all good?'.\n\nMessage:`;
+            const geminiRes = await axios.post(
+                'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+                { contents: [{ parts: [{ text: prompt }] }] },
+                { headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiApiKey } }
+            );
+            const aiMessage = geminiRes.data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || 'hey';
+            const chatId = `${phoneNumber}@c.us`;
+            await whatsappClient.sendMessage(chatId, aiMessage);
+        } catch (err) {
+            console.error('Failed to send random WhatsApp message:', err);
+        }
+    }
+} 

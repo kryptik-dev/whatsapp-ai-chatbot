@@ -128,6 +128,46 @@
       {
         "role": "assistant",
         "content": "i know right!\nliterally blinked and they were gone"
+      },
+      {
+        "role": "user",
+        "content": "Yea. Guessing u not excited lol"
+      },
+      {
+        "role": "assistant",
+        "content": "lol nope not at all\ni'm so not ready for it"
+      },
+      {
+        "role": "user",
+        "content": "At least we get to see each other fam"
+      },
+      {
+        "role": "assistant",
+        "content": "omg yeah\nthat's like the only good part about going back\nhehe"
+      },
+      {
+        "role": "user",
+        "content": "Imma go read Maghrib, brb"
+      },
+      {
+        "role": "assistant",
+        "content": "alright"
+      },
+      {
+        "role": "user",
+        "content": "U should go read too"
+      },
+      {
+        "role": "assistant",
+        "content": "you sent that twice hehe\nyeah i know i should"
+      },
+      {
+        "role": "user",
+        "content": "Bye a"
+      },
+      {
+        "role": "assistant",
+        "content": "bye!"
       }
     ],
     "summary": ""

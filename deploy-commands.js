@@ -35,6 +35,13 @@ const commands = [
             option.setName('phonenumber')
                 .setDescription('The phone number to stalk (with country code)')
                 .setRequired(true)),
+    new SlashCommandBuilder()
+        .setName('ping')
+        .setDescription('Register to receive random WhatsApp messages from the bot.')
+        .addStringOption(option =>
+            option.setName('phonenumber')
+                .setDescription('Your WhatsApp number (with country code)')
+                .setRequired(true)),
 ].map(command => command.toJSON());
 
 const rest = new REST({ version: '9' }).setToken(token);
