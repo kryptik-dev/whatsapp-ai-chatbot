@@ -1,6 +1,3 @@
-2025/07/21-16:40:12.052 bfc Reusing MANIFEST D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\Local Storage\leveldb/MANIFEST-000001
-2025/07/21-16:40:12.052 bfc Recovering log #4
-2025/07/21-16:40:12.053 bfc Reusing old log D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\Local Storage\leveldb/000004.log 
-2025/07/21-16:41:12.630 68b8 Level-0 table #7: started
-2025/07/21-16:41:12.634 68b8 Level-0 table #7: 14096 bytes OK
-2025/07/21-16:41:12.638 68b8 Delete type=0 #4
+2025/07/21-17:05:03.776 7598 Reusing MANIFEST D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\Local Storage\leveldb/MANIFEST-000001
+2025/07/21-17:05:03.777 7598 Recovering log #6
+2025/07/21-17:05:03.778 7598 Reusing old log D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\Local Storage\leveldb/000006.log 
