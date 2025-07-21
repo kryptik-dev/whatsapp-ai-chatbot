@@ -49,7 +49,10 @@ const discordClient = new DiscordClient({
 
 // WhatsApp Client Setup
 const whatsappClient = new WhatsAppClient({
-    authStrategy: new LocalAuth({ clientId: "bot-account-main" })
+    authStrategy: new LocalAuth({ clientId: "bot-account-main" }),
+    puppeteer: {
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+    }
 });
 
 const stalkedUsers = new Set();
