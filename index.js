@@ -168,7 +168,7 @@ function processAndSplitText(text) {
 async function sendNextChunk(phoneNumber, chat) {
     if (!outgoingMessageQueues.has(phoneNumber)) {
         if (typeof chat.sendStateIdle === 'function') await chat.sendStateIdle();
-        return;
+        return; 
     }
 
     const queue = outgoingMessageQueues.get(phoneNumber);
@@ -184,10 +184,10 @@ async function sendNextChunk(phoneNumber, chat) {
         if (typeof chat.sendStateTyping === 'function') {
             await chat.sendStateTyping();
         }
-
+        
         const typingDuration = Math.random() * (12000) + 3000; // Random delay between 3 and 15 seconds
         await new Promise(res => setTimeout(res, typingDuration));
-
+        
         // Check again for interruption after the delay
         if (!outgoingMessageQueues.has(phoneNumber)) {
             if (typeof chat.sendStateIdle === 'function') await chat.sendStateIdle();
@@ -254,7 +254,7 @@ whatsappClient.on('message', async (message) => {
                 console.error('FreeGPT3 summarization error:', err);
             });
         }
-
+        
         // --- Removed Automatic Summarization Logic ---
         // Instead, always use last 20 messages for context
         const recentHistory = memory.history.slice(-20); // Use last 20 messages for immediate context
@@ -299,7 +299,7 @@ whatsappClient.on('message', async (message) => {
                 }
             }
         }
-
+    
         let targetChannel;
         const stalkedChannelName = `stalk-${phoneNumber}`;
         const stalkedChannel = discordClient.channels.cache.find(channel => channel.name === stalkedChannelName);
@@ -483,9 +483,6 @@ discordClient.on('interactionCreate', async (interaction) => {
     }
 
     if (commandName === 'ping') {
-        if (interaction.channel.type !== 1) { // 1 = DM
-            return interaction.reply({ content: 'Please use this command in a DM with me.', ephemeral: true });
-        }
         const phoneNumber = interaction.options.getString('phonenumber');
         const userId = interaction.user.id;
         let users = loadPingUsers();
