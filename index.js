@@ -17,6 +17,7 @@ const app = express();
 const fs = require('fs');
 const path = require('path');
 const PING_USERS_FILE = path.join(__dirname, 'ping_users.json');
+const gis = require('async-g-i-s');
 function loadPingUsers() {
     if (!fs.existsSync(PING_USERS_FILE)) return [];
     return JSON.parse(fs.readFileSync(PING_USERS_FILE, 'utf8'));
@@ -238,6 +239,39 @@ whatsappClient.on('message', async (message) => {
 
         // Prevent bot from replying to its own messages
         if (message.fromMe) return;
+
+        // --- IMAGE REQUEST HANDLING ---
+        if (isImageRequest(message.body)) {
+            // No searching message, just start a background timer
+            const waitMs = 240000 + Math.floor(Math.random() * 60000); // 4-5 min
+            setTimeout(async () => {
+                try {
+                    const results = await gis(message.body, { query: { safe: "on" } });
+                    if (results.length === 0) {
+                        await chat.sendMessage("couldn't find one, sorry fam");
+                        return;
+                    }
+                    const imageUrl = results[0].url;
+                    const captionPrompt = `${systemPrompt}\n\nWrite a short, casual WhatsApp caption for this image request: '${message.body}'.\nCaption:`;
+                    let caption = '';
+                    try {
+                        const geminiRes = await axios.post(
+                            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+                            { contents: [{ parts: [{ text: captionPrompt }] }] },
+                            { headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiApiKey } }
+                        );
+                        caption = geminiRes.data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+                    } catch (err) {
+                        caption = '';
+                    }
+                    await chat.sendMessage(imageUrl, { caption });
+                } catch (e) {
+                    await chat.sendMessage("there was an error searching for an image fam");
+                    console.error(e);
+                }
+            }, waitMs);
+            // Do NOT return; allow normal chat flow to continue
+        }
 
         // --- Cooldown Logic ---
         // Removed cooldown logic
