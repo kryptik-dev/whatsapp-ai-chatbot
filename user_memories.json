@@ -112,6 +112,22 @@
       {
         "role": "assistant",
         "content": "hehe i wish i could send it over"
+      },
+      {
+        "role": "user",
+        "content": "u can give me tmrw in skl :)\nBack to skl fam"
+      },
+      {
+        "role": "assistant",
+        "content": "omg nooo not back to school\ni'm so not ready for it lol\n\nand you think i'm sharing my pasta? hehe\nno way jose"
+      },
+      {
+        "role": "user",
+        "content": "How the holidays went so fast idk"
+      },
+      {
+        "role": "assistant",
+        "content": "i know right!\nliterally blinked and they were gone"
       }
     ],
     "summary": ""
