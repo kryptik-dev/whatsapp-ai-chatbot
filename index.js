@@ -1,10 +1,12 @@
 require('dotenv').config({ path: './.env' });
-const { Client: DiscordClient, GatewayIntentBits, EmbedBuilder, AttachmentBuilder, ChannelType, PermissionsBitField } = require('discord.js');
+const { Client: DiscordClient, GatewayIntentBits, EmbedBuilder, AttachmentBuilder, ChannelType, PermissionsBitField, ActivityType } = require('discord.js');
 const { Client: WhatsAppClient, LocalAuth } = require('whatsapp-web.js');
 const QRCode = require('qrcode');
 const { systemPrompt } = require('./system_prompt');
-const { getUserHistory, addMessage } = require('./memory_store');
+const { getUserMemory, addMessage, updateUserSummary } = require('./memory_store');
 const { isImageRequest, extractImagePrompt } = require('./image_utils');
+const FreeGPT3 = require('freegptjs');
+const openai = new FreeGPT3();
 const token = process.env.DISCORD_TOKEN;
 const mainChatChannelId = process.env.MAIN_CHAT_CHANNEL_ID;
 const yourUserId = process.env.YOUR_USER_ID;
@@ -42,39 +44,109 @@ const whatsappClient = new WhatsAppClient({
 
 const stalkedUsers = new Set();
 const outgoingMessageQueues = new Map();
+const userMessageCount = new Map(); // Track message count for summarization
+let offlineTimer = null;
+
+// ---  Connection Stability & Auto-Restart ---
+whatsappClient.on('disconnected', (reason) => {
+    console.log('❌ WhatsApp client was logged out:', reason);
+    console.log('🔄 Attempting to reconnect...');
+    whatsappClient.initialize().catch(err => {
+        console.error('Failed to re-initialize WhatsApp client after disconnection:', err);
+    });
+});
 
 discordClient.on('ready', () => {
     console.log(`Logged in as ${discordClient.user.tag}!`);
+    discordClient.user.setPresence({
+        activities: [{ name: "Online", type: ActivityType.Playing }],
+        status: 'online',
+    });
+    // Set timer to go offline after initial startup
+    offlineTimer = setTimeout(() => {
+        discordClient.user.setPresence({
+            activities: [{ name: "Offline", type: ActivityType.Playing }],
+            status: 'idle'
+        });
+    }, 2 * 60 * 1000);
 });
 
+
+async function summarizeConversation(conversationText) {
+    if (!conversationText) return "";
+    try {
+        const summaryPrompt = `Based on the following conversation, create a concise, 1-2 paragraph summary of the key facts, topics, and important user preferences mentioned. Focus on information that would be essential for maintaining context in a future conversation (e.g., current events, games being played, important names, user's stated likes/dislikes).
+
+Conversation:
+${conversationText}
+
+Summary:`;
+
+        const geminiRes = await axios.post(
+            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+            { contents: [{ parts: [{ text: summaryPrompt }] }] },
+            { headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiApiKey } }
+        );
+        return geminiRes.data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    } catch (error) {
+        console.error('Error summarizing conversation:', error);
+        return ""; // Return empty string on error
+    }
+}
+
+
 function processAndSplitText(text) {
-    // 1. Prioritize splitting by newlines, as these are intentional breaks.
+    // 1. Split by newlines first
     let chunks = text.split('\n').map(c => c.trim()).filter(Boolean);
+    const MAX_CHUNK_LENGTH = 140;
+    let tempChunks = [];
 
-    const finalChunks = [];
-    const MAX_CHUNK_LENGTH = 150; // Allow slightly longer chunks
-
-    // 2. If a chunk is still too long, split it further by words.
     for (const chunk of chunks) {
         if (chunk.length > MAX_CHUNK_LENGTH) {
-            const words = chunk.split(' ');
-            let currentSubChunk = "";
-            for (const word of words) {
-                if (currentSubChunk.length + word.length + 1 > MAX_CHUNK_LENGTH) {
-                    finalChunks.push(currentSubChunk);
-                    currentSubChunk = word;
-                } else {
-                    currentSubChunk = currentSubChunk ? `${currentSubChunk} ${word}` : word;
+            let start = 0;
+            while (start < chunk.length) {
+                let end = Math.min(start + MAX_CHUNK_LENGTH, chunk.length);
+                let splitAt = -1;
+                // Look for punctuation
+                const punctRegex = /[.!?](?=\s|$)/g;
+                let lastPunct = -1;
+                let match;
+                while ((match = punctRegex.exec(chunk.slice(start, end))) !== null) {
+                    lastPunct = start + match.index + 1;
                 }
-            }
-            if (currentSubChunk) {
-                finalChunks.push(currentSubChunk);
+                if (lastPunct !== -1 && lastPunct > start) {
+                    splitAt = lastPunct;
+                }
+                // If no punctuation, look for conjunctions
+                if (splitAt === -1) {
+                    const conjRegex = /\b(and|but|so|or|because|then|still|yet)\b/gi;
+                    let lastConj = -1;
+                    while ((match = conjRegex.exec(chunk.slice(start, end))) !== null) {
+                        lastConj = start + match.index + match[0].length;
+                    }
+                    if (lastConj !== -1) splitAt = lastConj;
+                }
+                // If no natural break, allow longer chunk (don't split mid-sentence)
+                if (splitAt === -1 || splitAt <= start) splitAt = chunk.length;
+                let piece = chunk.slice(start, splitAt).trim();
+                if (piece && !/^[.!?]+$/.test(piece)) {
+                    tempChunks.push(piece);
+                }
+                start = splitAt;
             }
         } else {
-            finalChunks.push(chunk);
+            tempChunks.push(chunk);
         }
     }
-    
+    // Merge very short chunks with the previous one
+    const finalChunks = [];
+    for (let i = 0; i < tempChunks.length; i++) {
+        if (finalChunks.length > 0 && tempChunks[i].length < 20) {
+            finalChunks[finalChunks.length - 1] += ' ' + tempChunks[i];
+        } else {
+            finalChunks.push(tempChunks[i]);
+        }
+    }
     return finalChunks;
 }
 
@@ -82,7 +154,7 @@ function processAndSplitText(text) {
 async function sendNextChunk(phoneNumber, chat) {
     if (!outgoingMessageQueues.has(phoneNumber)) {
         if (typeof chat.sendStateIdle === 'function') await chat.sendStateIdle();
-        return; 
+        return;
     }
 
     const queue = outgoingMessageQueues.get(phoneNumber);
@@ -98,10 +170,10 @@ async function sendNextChunk(phoneNumber, chat) {
         if (typeof chat.sendStateTyping === 'function') {
             await chat.sendStateTyping();
         }
-        
+
         const typingDuration = Math.random() * (12000) + 3000; // Random delay between 3 and 15 seconds
         await new Promise(res => setTimeout(res, typingDuration));
-        
+
         // Check again for interruption after the delay
         if (!outgoingMessageQueues.has(phoneNumber)) {
             if (typeof chat.sendStateIdle === 'function') await chat.sendStateIdle();
@@ -125,6 +197,13 @@ async function sendNextChunk(phoneNumber, chat) {
 
 
 whatsappClient.on('message', async (message) => {
+    // Set status to online and clear any pending offline timer
+    if (offlineTimer) clearTimeout(offlineTimer);
+    discordClient.user.setPresence({
+        activities: [{ name: "Online", type: ActivityType.Playing }],
+        status: 'online',
+    });
+
     try {
         const contact = await message.getContact();
         const phoneNumber = contact.number;
@@ -138,28 +217,44 @@ whatsappClient.on('message', async (message) => {
         // Prevent bot from replying to its own messages
         if (message.fromMe) return;
 
-        // Get and update persistent conversation history
-        const history = await getUserHistory(phoneNumber);
-        await addMessage(phoneNumber, { role: 'user', content: message.body });
+        // --- Cooldown Logic ---
+        // Removed cooldown logic
 
-        // Use only the last 30 messages for context
-        const recentHistory = history.slice(-30);
+        // Add user message and then get the fresh memory
+        await addMessage(phoneNumber, { role: 'user', content: message.body });
+        let memory = await getUserMemory(phoneNumber);
+        
+        // --- Summarization with FreeGPT3 ---
+        const currentCount = (userMessageCount.get(phoneNumber) || 0) + 1;
+        userMessageCount.set(phoneNumber, currentCount);
+        if (currentCount % 20 === 0) { // Every 20 messages
+            const historyToSummarize = memory.history.slice(-40).map(msg => `${msg.role}: ${msg.content}`).join('\n');
+            const summaryPrompt = `Summarize the following WhatsApp conversation in 1-2 paragraphs, focusing on key facts, topics, and user preferences.\n\nConversation:\n${historyToSummarize}\n\nSummary:`;
+            openai.chat.completions.create({
+                messages: [{ role: 'user', content: summaryPrompt }],
+                model: 'gpt-3.5-turbo',
+            }).then(chatCompletion => {
+                const summary = chatCompletion.choices?.[0]?.message?.content || '';
+                if (summary) updateUserSummary(phoneNumber, summary);
+            }).catch(err => {
+                console.error('FreeGPT3 summarization error:', err);
+            });
+        }
+
+        // --- Removed Automatic Summarization Logic ---
+        // Instead, always use last 20 messages for context
+        const recentHistory = memory.history.slice(-20); // Use last 20 messages for immediate context
         const formattedHistory = recentHistory.map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`).join('\n');
-        const prompt = `${systemPrompt}\n\n${formattedHistory}\nUser: ${message.body}\nAssistant:`;
+        
+        const prompt = `${systemPrompt}\n\n--- Recent Conversation ---\n${formattedHistory}\nUser: ${message.body}\nAssistant:`;
 
         let aiResponse = null;
         try {
+            // Removed cooldown set
             const geminiRes = await axios.post(
-                'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent',
-                {
-                    contents: [{ parts: [{ text: prompt }] }]
-                },
-                {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'x-goog-api-key': geminiApiKey
-                    }
-                }
+                'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+                { contents: [{ parts: [{ text: prompt }] }] },
+                { headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiApiKey } }
             );
             aiResponse = geminiRes.data.candidates?.[0]?.content?.parts?.[0]?.text || 'Sorry, I could not generate a response.';
         } catch (err) {
@@ -190,7 +285,7 @@ whatsappClient.on('message', async (message) => {
                 }
             }
         }
-    
+
         let targetChannel;
         const stalkedChannelName = `stalk-${phoneNumber}`;
         const stalkedChannel = discordClient.channels.cache.find(channel => channel.name === stalkedChannelName);
@@ -212,6 +307,14 @@ whatsappClient.on('message', async (message) => {
         }
     } catch (error) {
         console.error('An error occurred while processing a message:', error);
+    } finally {
+        // Reset the timer after every message
+        offlineTimer = setTimeout(() => {
+            discordClient.user.setPresence({
+                activities: [{ name: "Offline", type: ActivityType.Playing }],
+                status: 'idle'
+            });
+        }, 2 * 60 * 1000);
     }
 });
 
