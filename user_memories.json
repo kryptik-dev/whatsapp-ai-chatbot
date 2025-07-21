@@ -88,6 +88,22 @@
       {
         "role": "assistant",
         "content": "dry? no way\nbolognese is literally a classic\nand lasagne is like peak comfort food"
+      },
+      {
+        "role": "user",
+        "content": "lol"
+      },
+      {
+        "role": "assistant",
+        "content": "hehe right\nthey're just so good"
+      },
+      {
+        "role": "user",
+        "content": "so creamy pesto it is?"
+      },
+      {
+        "role": "assistant",
+        "content": "yeah, i think so!\ni'm so ready for it now haha"
       }
     ],
     "summary": ""
