@@ -104,6 +104,14 @@
       {
         "role": "assistant",
         "content": "yeah, i think so!\ni'm so ready for it now haha"
+      },
+      {
+        "role": "user",
+        "content": "gimme some tooo"
+      },
+      {
+        "role": "assistant",
+        "content": "hehe i wish i could send it over"
       }
     ],
     "summary": ""
