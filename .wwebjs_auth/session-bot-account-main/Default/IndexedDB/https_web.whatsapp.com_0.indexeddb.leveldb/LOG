@@ -1,7 +1,12 @@
-2025/07/21-19:41:06.141 1dfc Reusing MANIFEST D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
-2025/07/21-19:41:06.142 1dfc Recovering log #216
-2025/07/21-19:41:06.292 1dfc Reusing old log D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/000216.log 
-2025/07/21-19:41:11.275 1dfc Level-0 table #221: started
-2025/07/21-19:41:11.300 1dfc Level-0 table #221: 968282 bytes OK
-2025/07/21-19:41:11.303 1dfc Delete type=0 #216
-2025/07/21-19:41:11.305 1dfc Manual compaction at level-0 from '\x00Q\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00R\x00\x00\x00' @ 0 : 0; will stop at (end)
+2025/07/22-19:41:43.175 4774 Reusing MANIFEST D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
+2025/07/22-19:41:43.175 4774 Recovering log #438
+2025/07/22-19:41:43.189 4774 Reusing old log D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/000438.log 
+2025/07/22-19:41:44.936 67f8 Level-0 table #444: started
+2025/07/22-19:41:44.947 67f8 Level-0 table #444: 119290 bytes OK
+2025/07/22-19:41:44.948 67f8 Delete type=0 #438
+2025/07/22-19:41:44.950 19a0 Manual compaction at level-0 from '\x00\x87\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00\x88\x00\x00\x00' @ 0 : 0; will stop at (end)
+2025/07/22-19:41:46.977 19a0 Compacting 1@1 + 2@2 files
+2025/07/22-19:41:47.080 19a0 Generated table #445@1: 79298 keys, 2260892 bytes
+2025/07/22-19:41:47.106 19a0 Generated table #446@1: 16175 keys, 676917 bytes
+2025/07/22-19:41:47.106 19a0 Compacted 1@1 + 2@2 files => 2937809 bytes
+2025/07/22-19:41:47.107 19a0 compacted to: files[ 0 0 2 0 0 0 0 ]

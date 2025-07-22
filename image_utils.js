@@ -1,3 +1,5 @@
+const gis = require('async-g-i-s');
+
 // Simple keyword-based detection for image requests
 function isImageRequest(message) {
     const triggers = [
@@ -49,4 +51,13 @@ function extractImagePrompt(message) {
     return prompt.trim();
 }
 
-module.exports = { isImageRequest, extractImagePrompt }; 
+// Search for an image using async-g-i-s
+async function searchImage(query, options = {}) {
+    const results = await gis(query, options);
+    if (Array.isArray(results) && results.length > 0) {
+        return results[0]; // Return the first image result
+    }
+    return null;
+}
+
+module.exports = { isImageRequest, extractImagePrompt, searchImage }; 

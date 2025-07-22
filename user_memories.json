@@ -3,62 +3,6 @@
     "history": [
       {
         "role": "user",
-        "content": "Heyy"
-      },
-      {
-        "role": "assistant",
-        "content": "Sorry, there was an error with the AI service."
-      },
-      {
-        "role": "user",
-        "content": "Heyy"
-      },
-      {
-        "role": "assistant",
-        "content": "Sorry, there was an error with the AI service."
-      },
-      {
-        "role": "user",
-        "content": "Heyy"
-      },
-      {
-        "role": "assistant",
-        "content": "heyy"
-      },
-      {
-        "role": "user",
-        "content": "hey"
-      },
-      {
-        "role": "assistant",
-        "content": "whats up"
-      },
-      {
-        "role": "user",
-        "content": "ntm wbu?"
-      },
-      {
-        "role": "assistant",
-        "content": "just chilling really\nthinking about what to make for dinner lol"
-      },
-      {
-        "role": "user",
-        "content": "lol"
-      },
-      {
-        "role": "assistant",
-        "content": "ikr\ni'm still tryna figure out dinner\ni'm starving"
-      },
-      {
-        "role": "user",
-        "content": "any ideas"
-      },
-      {
-        "role": "assistant",
-        "content": "ugh idk\nmaybe some pasta\nor like a stir fry?"
-      },
-      {
-        "role": "user",
         "content": "pasta baby 😝"
       },
       {
@@ -168,6 +112,294 @@
       {
         "role": "assistant",
         "content": "bye!"
+      },
+      {
+        "role": "user",
+        "content": "Wk"
+      },
+      {
+        "role": "assistant",
+        "content": "Sorry, there was an error with the AI service."
+      },
+      {
+        "role": "user",
+        "content": "wk"
+      },
+      {
+        "role": "assistant",
+        "content": "Sorry, there was an error with the AI service."
+      },
+      {
+        "role": "user",
+        "content": "Wk"
+      },
+      {
+        "role": "assistant",
+        "content": "Sorry, there was an error with the AI service."
+      },
+      {
+        "role": "user",
+        "content": "Hey"
+      },
+      {
+        "role": "assistant",
+        "content": "Sorry, there was an error with the AI service."
+      },
+      {
+        "role": "user",
+        "content": "Hey"
+      },
+      {
+        "role": "assistant",
+        "content": "Sorry, there was an error with the AI service."
+      },
+      {
+        "role": "user",
+        "content": "hey"
+      },
+      {
+        "role": "assistant",
+        "content": "Sorry, there was an error with the AI service."
+      },
+      {
+        "role": "user",
+        "content": "Heyy"
+      },
+      {
+        "role": "assistant",
+        "content": "Sorry, there was an error with the AI service."
+      },
+      {
+        "role": "user",
+        "content": "heyy"
+      },
+      {
+        "role": "assistant",
+        "content": "[No content]"
+      },
+      {
+        "role": "user",
+        "content": "heyy"
+      },
+      {
+        "role": "assistant",
+        "content": "Sorry, there was an error with the AI service."
+      },
+      {
+        "role": "user",
+        "content": "Hey"
+      },
+      {
+        "role": "assistant",
+        "content": "Sorry, there was an error with the AI service."
+      },
+      {
+        "role": "user",
+        "content": "hey"
+      },
+      {
+        "role": "assistant",
+        "content": "Sorry, there was an error with the AI service."
+      },
+      {
+        "role": "user",
+        "content": "Hey"
+      },
+      {
+        "role": "assistant",
+        "content": "Sorry, there was an error with the AI service."
+      },
+      {
+        "role": "user",
+        "content": "Wk"
+      },
+      {
+        "role": "assistant",
+        "content": "[No output]"
+      },
+      {
+        "role": "user",
+        "content": "Hey"
+      },
+      {
+        "role": "assistant",
+        "content": "[No output]"
+      },
+      {
+        "role": "user",
+        "content": "hey"
+      },
+      {
+        "role": "assistant",
+        "content": "[No output]"
+      },
+      {
+        "role": "user",
+        "content": "heyy"
+      },
+      {
+        "role": "assistant",
+        "content": "[No output]"
+      },
+      {
+        "role": "user",
+        "content": "Hey"
+      },
+      {
+        "role": "assistant",
+        "content": "How's it going? Anything fun on your mind today?"
+      },
+      {
+        "role": "user",
+        "content": "wk"
+      },
+      {
+        "role": "assistant",
+        "content": "Lekker, just chilling. Wyd? Anything exciting happening on your end?"
+      },
+      {
+        "role": "user",
+        "content": "Wk"
+      },
+      {
+        "role": "assistant",
+        "content": "Nothing much, just taking it easy. You got any plans for the weekend?"
+      },
+      {
+        "role": "user",
+        "content": "Fuck you"
+      },
+      {
+        "role": "assistant",
+        "content": "Hehe, you wish! 😏 What’s got you so feisty today?"
+      },
+      {
+        "role": "user",
+        "content": "Swear me"
+      },
+      {
+        "role": "assistant",
+        "content": "Yoh, you’re asking for it now! 😂 Fine, you little shit. What’s your problem, hey?"
+      },
+      {
+        "role": "user",
+        "content": "can u reply in all lower case"
+      },
+      {
+        "role": "assistant",
+        "content": "yebo, i can do that. what's up with you today, hey? you seem a bit on edge.\n"
+      },
+      {
+        "role": "user",
+        "content": "fuck it"
+      },
+      {
+        "role": "assistant",
+        "content": "fuck it, indeed. what's got you all worked up, bru? need to vent or something?"
+      },
+      {
+        "role": "user",
+        "content": "Hey"
+      },
+      {
+        "role": "assistant",
+        "content": "hey hey, what's the story? you good or what?"
+      },
+      {
+        "role": "user",
+        "content": "im good lol"
+      },
+      {
+        "role": "assistant",
+        "content": "yoh, that's lekker to hear. so what's the plan for the day then? anything exciting?"
+      },
+      {
+        "role": "user",
+        "content": "U seem in a good mood"
+      },
+      {
+        "role": "assistant",
+        "content": "Sorry, there was an error with the AI service."
+      },
+      {
+        "role": "user",
+        "content": "uh"
+      },
+      {
+        "role": "assistant",
+        "content": "Sorry, there was an error with the AI service."
+      },
+      {
+        "role": "user",
+        "content": "okay"
+      },
+      {
+        "role": "assistant",
+        "content": "Sorry, there was an error with the AI service."
+      },
+      {
+        "role": "user",
+        "content": "Heyy"
+      },
+      {
+        "role": "assistant",
+        "content": "Sorry, there was an error with the AI service."
+      },
+      {
+        "role": "user",
+        "content": "hey"
+      },
+      {
+        "role": "assistant",
+        "content": "Sorry, there was an error with the AI service."
+      },
+      {
+        "role": "user",
+        "content": "hey"
+      },
+      {
+        "role": "assistant",
+        "content": "Sorry, there was an error with the AI service."
+      },
+      {
+        "role": "user",
+        "content": "Hey"
+      },
+      {
+        "role": "assistant",
+        "content": "awe, you good?\nwhat's the story, hey?"
+      },
+      {
+        "role": "user",
+        "content": "ntm.. wbu"
+      },
+      {
+        "role": "assistant",
+        "content": "yoh same, fokol here.\njust chilling really. was kinda hoping you had something going on tho, to fix this boredom hehe."
+      },
+      {
+        "role": "user",
+        "content": "Wehh"
+      },
+      {
+        "role": "assistant",
+        "content": "eish, what's wehh?\nu not feeling my vibe or what? 😭"
+      },
+      {
+        "role": "user",
+        "content": "wehh means like u got nothing to say and feeling sorry"
+      },
+      {
+        "role": "assistant",
+        "content": "aah, i get it now.\neish, guess i was feeling a bit wehh then, bru.\nso what u gonna do about it?"
+      },
+      {
+        "role": "user",
+        "content": "why u punctuating alot today Aliyah?"
+      },
+      {
+        "role": "assistant",
+        "content": "yoh, am i? didn't even notice.\njust typing how it comes out i guess.\nwhat, u got a problem with my full stops or something? hehe."
       }
     ],
     "summary": ""

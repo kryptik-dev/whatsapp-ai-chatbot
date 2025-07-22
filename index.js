@@ -4,7 +4,7 @@ const { Client: WhatsAppClient, LocalAuth } = require('whatsapp-web.js');
 const QRCode = require('qrcode');
 const { systemPrompt } = require('./system_prompt');
 const { getUserMemory, addMessage, updateUserSummary } = require('./memory_store');
-const { isImageRequest, extractImagePrompt } = require('./image_utils');
+const { isImageRequest, extractImagePrompt, searchImage } = require('./image_utils');
 const FreeGPT3 = require('freegptjs');
 const openai = new FreeGPT3();
 const token = process.env.DISCORD_TOKEN;
@@ -18,6 +18,7 @@ const app = express();
 const fs = require('fs');
 const path = require('path');
 const PING_USERS_FILE = path.join(__dirname, 'ping_users.json');
+const { sendToVenice, sendToVeniceWithPrompt } = require('./venice_api');
 function loadPingUsers() {
     if (!fs.existsSync(PING_USERS_FILE)) return [];
     return JSON.parse(fs.readFileSync(PING_USERS_FILE, 'utf8'));
@@ -240,6 +241,39 @@ whatsappClient.on('message', async (message) => {
         // Prevent bot from replying to its own messages
         if (message.fromMe) return;
 
+        // --- IMAGE REQUEST HANDLING ---
+        if (isImageRequest(message.body)) {
+            // AI will generate the wait message as part of its response
+            // Wait 15-30 seconds, ignoring new messages from this user
+            outgoingMessageQueues.set(phoneNumber, []); // Block further messages for this user
+            const waitTime = 15000 + Math.floor(Math.random() * 15000);
+            await new Promise(res => setTimeout(res, waitTime));
+            outgoingMessageQueues.delete(phoneNumber); // Unblock after delay
+            // Search for image
+            const prompt = extractImagePrompt(message.body) || 'random image';
+            const imageResult = await searchImage(prompt, { query: { safe: "on" } });
+            if (!imageResult || !imageResult.url) {
+                await chat.sendMessage("couldn't find an image, sorry!");
+                return;
+            }
+            // Download image to /temp
+            const tempDir = path.join(__dirname, 'temp');
+            if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
+            const ext = path.extname(imageResult.url).split('?')[0] || '.jpg';
+            const tempFile = path.join(tempDir, `img_${Date.now()}${ext}`);
+            try {
+                const response = await axios.get(imageResult.url, { responseType: 'arraybuffer' });
+                fs.writeFileSync(tempFile, response.data);
+                await chat.sendMessage(fs.createReadStream(tempFile), { sendMediaAsDocument: false });
+            } catch (err) {
+                await chat.sendMessage("couldn't download or send the image, sorry!");
+            } finally {
+                // Delete temp file
+                if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+            }
+            return;
+        }
+
         // --- Cooldown Logic ---
         // Removed cooldown logic
 
@@ -273,27 +307,12 @@ whatsappClient.on('message', async (message) => {
 
         let aiResponse = null;
         try {
-            // Use OpenRouter Dolphin Mistral model
-            const openRouterRes = await axios.post(
-                'https://openrouter.ai/api/v1/chat/completions',
-                {
-                    model: 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free',
-                    messages: [
-                        { role: 'system', content: systemPrompt },
-                        ...recentHistory.map(msg => ({ role: msg.role, content: msg.content })),
-                        { role: 'user', content: message.body }
-                    ]
-                },
-                {
-                    headers: {
-                        'Authorization': `Bearer ${veniceOpenrouterApiKey}`,
-                        'Content-Type': 'application/json'
-                    }
-                }
+            aiResponse = await sendToVeniceWithPrompt(
+                message.body,
+                recentHistory.map(msg => ({ role: msg.role, content: msg.content }))
             );
-            aiResponse = openRouterRes.data.choices?.[0]?.message?.content || 'Sorry, I could not generate a response.';
         } catch (err) {
-            console.error('OpenRouter API error:', err?.response?.data || err.message);
+            console.error('Venice API error:', err);
             aiResponse = 'Sorry, there was an error with the AI service.';
         }
 
