@@ -11,13 +11,13 @@ const token = process.env.DISCORD_TOKEN;
 const mainChatChannelId = process.env.MAIN_CHAT_CHANNEL_ID;
 const yourUserId = process.env.YOUR_USER_ID;
 const geminiApiKey = process.env.GEMINI_API;
+const veniceOpenrouterApiKey = process.env.VENICE_OPENROUTER_API;
 const axios = require('axios');
 const express = require('express');
 const app = express();
 const fs = require('fs');
 const path = require('path');
 const PING_USERS_FILE = path.join(__dirname, 'ping_users.json');
-const gis = require('async-g-i-s');
 function loadPingUsers() {
     if (!fs.existsSync(PING_USERS_FILE)) return [];
     return JSON.parse(fs.readFileSync(PING_USERS_FILE, 'utf8'));
@@ -240,56 +240,6 @@ whatsappClient.on('message', async (message) => {
         // Prevent bot from replying to its own messages
         if (message.fromMe) return;
 
-        // --- IMAGE REQUEST HANDLING ---
-        if (isImageRequest(message.body)) {
-            // Step 1: Use Gemini to generate a human-like searching message
-            const searchingPrompt = `${systemPrompt}\n\nThe user just asked for an image: '${message.body}'.\nReply with a short, casual, human-like WhatsApp message saying you'll find or send one soon. Don't send the image yet.\nMessage:`;
-            let searchingMessage = '';
-            try {
-                const geminiRes = await axios.post(
-                    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
-                    { contents: [{ parts: [{ text: searchingPrompt }] }] },
-                    { headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiApiKey } }
-                );
-                searchingMessage = geminiRes.data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-            } catch (err) {
-                searchingMessage = '';
-            }
-            if (searchingMessage) await chat.sendMessage(searchingMessage);
-            // Step 2: Wait 4-5 minutes (random)
-            const waitMs = 240000 + Math.floor(Math.random() * 60000); // 4-5 min
-            setTimeout(async () => {
-                try {
-                    // Step 3: Search for an image
-                    const results = await gis(message.body, { query: { safe: "on" } });
-                    if (results.length === 0) {
-                        await chat.sendMessage("couldn't find one, sorry fam");
-                        return;
-                    }
-                    const imageUrl = results[0].url;
-                    // Step 4: Generate a caption with Gemini
-                    const captionPrompt = `${systemPrompt}\n\nWrite a short, casual WhatsApp caption for this image request: '${message.body}'.\nCaption:`;
-                    let caption = '';
-                    try {
-                        const geminiRes = await axios.post(
-                            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
-                            { contents: [{ parts: [{ text: captionPrompt }] }] },
-                            { headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiApiKey } }
-                        );
-                        caption = geminiRes.data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-                    } catch (err) {
-                        caption = '';
-                    }
-                    // Step 5: Send the image with the caption
-                    await chat.sendMessage(imageUrl, { caption });
-                } catch (e) {
-                    await chat.sendMessage("there was an error searching for an image fam");
-                    console.error(e);
-                }
-            }, waitMs);
-            return;
-        }
-
         // --- Cooldown Logic ---
         // Removed cooldown logic
 
@@ -323,15 +273,27 @@ whatsappClient.on('message', async (message) => {
 
         let aiResponse = null;
         try {
-            // Removed cooldown set
-            const geminiRes = await axios.post(
-                'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
-                { contents: [{ parts: [{ text: prompt }] }] },
-                { headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiApiKey } }
+            // Use OpenRouter Dolphin Mistral model
+            const openRouterRes = await axios.post(
+                'https://openrouter.ai/api/v1/chat/completions',
+                {
+                    model: 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free',
+                    messages: [
+                        { role: 'system', content: systemPrompt },
+                        ...recentHistory.map(msg => ({ role: msg.role, content: msg.content })),
+                        { role: 'user', content: message.body }
+                    ]
+                },
+                {
+                    headers: {
+                        'Authorization': `Bearer ${veniceOpenrouterApiKey}`,
+                        'Content-Type': 'application/json'
+                    }
+                }
             );
-            aiResponse = geminiRes.data.candidates?.[0]?.content?.parts?.[0]?.text || 'Sorry, I could not generate a response.';
+            aiResponse = openRouterRes.data.choices?.[0]?.message?.content || 'Sorry, I could not generate a response.';
         } catch (err) {
-            console.error('Gemini API error:', err?.response?.data || err.message);
+            console.error('OpenRouter API error:', err?.response?.data || err.message);
             aiResponse = 'Sorry, there was an error with the AI service.';
         }
 
@@ -585,13 +547,24 @@ async function sendRandomWhatsAppMessages() {
     for (const { phoneNumber } of users) {
         try {
             const prompt = `${systemPrompt}\n\nWrite a single short WhatsApp message (max 2-3 words) to check in on a friend. Examples: 'hey', 'wyd', 'you good?', 'sup', 'yo', 'what you doing', 'all good?'.\n\nMessage:`;
-            const geminiRes = await axios.post(
-                'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
-                { contents: [{ parts: [{ text: prompt }] }] },
-                { headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiApiKey } }
+            const openRouterRes = await axios.post(
+                'https://openrouter.ai/api/v1/chat/completions',
+                {
+                    model: 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free',
+                    messages: [
+                        { role: 'system', content: systemPrompt },
+                        { role: 'user', content: prompt }
+                    ]
+                },
+                {
+                    headers: {
+                        'Authorization': `Bearer ${veniceOpenrouterApiKey}`,
+                        'Content-Type': 'application/json'
+                    }
+                }
             );
-            const aiMessage = geminiRes.data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || 'hey';
-            const cleanNumber = phoneNumber.replace(/^\+/, '');
+            const aiMessage = openRouterRes.data.choices?.[0]?.message?.content?.trim() || 'hey';
+            const cleanNumber = phoneNumber.replace(/^[+]/, '');
             const chatId = `${cleanNumber}@c.us`;
             await whatsappClient.sendMessage(chatId, aiMessage);
         } catch (err) {

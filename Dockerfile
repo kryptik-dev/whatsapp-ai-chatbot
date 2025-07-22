@@ -1,8 +1,19 @@
-FROM node:20
+# Use official Node.js LTS image
+FROM node:18
 
-# Install Chromium and all required dependencies for Puppeteer
+# Set working directory
+WORKDIR /app
+
+# Copy package.json and package-lock.json
+COPY package*.json ./
+
+# Install dependencies
+RUN npm install --production
+
+# Install Chromium dependencies for puppeteer/whatsapp-web.js
 RUN apt-get update && apt-get install -y \
-    chromium \
+    wget \
+    ca-certificates \
     fonts-liberation \
     libappindicator3-1 \
     libasound2 \
@@ -22,12 +33,11 @@ RUN apt-get update && apt-get install -y \
     --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+# Copy the rest of the code
 COPY . .
 
-RUN npm install
+# Expose the Express port
+EXPOSE 3000
 
-# Set Puppeteer to use system Chromium
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-
-CMD ["node", "index.js"]
+# Start the bot
+CMD ["node", "index.js"] 
