@@ -340,6 +340,44 @@ whatsappClient.on('message', async (message) => {
         try {
             // Removed cooldown set
             aiResponse = await callGeminiWithFallback(prompt) || 'Sorry, I could not generate a response.';
+
+            // --- IMAGE REQUEST MARKER HANDLING ---
+            if (typeof aiResponse === 'string' && aiResponse.startsWith('[IMAGE_REQUEST:')) {
+                const match = aiResponse.match(/^\[IMAGE_REQUEST:(.*)\]$/);
+                if (match) {
+                    const imagePrompt = match[1].trim();
+                    await chat.sendMessage("lemme find one");
+                    const waitTime = Math.floor(Math.random() * 15000) + 15000; // 15-30 seconds
+                    await new Promise(res => setTimeout(res, waitTime));
+                    try {
+                        const results = await gis(imagePrompt, { query: { safe: "on" } });
+                        if (results.length > 0) {
+                            const imageUrl = results[0].url;
+                            const fileName = `img_${Date.now()}.jpg`;
+                            const filePath = path.join(tempDir, fileName);
+                            const response = await fetch(imageUrl);
+                            const buffer = await response.buffer();
+                            fs.writeFileSync(filePath, buffer);
+                            let caption = '';
+                            try {
+                                const captionPrompt = `${systemPrompt}\n\nWrite a short, casual caption for this image request: '${imagePrompt}'.`;
+                                caption = (await callGeminiWithFallback(captionPrompt)).trim();
+                            } catch (e) {
+                                caption = '';
+                            }
+                            const media = await MessageMedia.fromFilePath(filePath);
+                            await chat.sendMessage(media, { caption });
+                            fs.unlinkSync(filePath);
+                        } else {
+                            await chat.sendMessage("sorry, i couldn't find an image for that");
+                        }
+                    } catch (e) {
+                        await chat.sendMessage("there was an error searching for an image");
+                        console.error(e);
+                    }
+                    return;
+                }
+            }
         } catch (err) {
             console.error('Gemini API error:', err?.response?.data || err.message);
             aiResponse = 'Sorry, there was an error with the AI service.';
