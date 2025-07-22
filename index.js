@@ -101,6 +101,32 @@ discordClient.on('ready', () => {
 });
 
 
+// Gemini fallback helper
+async function callGeminiWithFallback(promptText) {
+    try {
+        // Try Gemini Pro first
+        const proRes = await axios.post(
+            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent',
+            { contents: [{ parts: [{ text: promptText }] }] },
+            { headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiApiKey } }
+        );
+        return proRes.data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    } catch (proErr) {
+        // On error or rate limit, fall back to Flash
+        try {
+            const flashRes = await axios.post(
+                'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+                { contents: [{ parts: [{ text: promptText }] }] },
+                { headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiApiKey } }
+            );
+            return flashRes.data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        } catch (flashErr) {
+            console.error('Gemini API error (pro & flash):', flashErr?.response?.data || flashErr.message);
+            return '';
+        }
+    }
+}
+
 async function summarizeConversation(conversationText) {
     if (!conversationText) return "";
     try {
@@ -110,13 +136,7 @@ Conversation:
 ${conversationText}
 
 Summary:`;
-
-        const geminiRes = await axios.post(
-            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
-            { contents: [{ parts: [{ text: summaryPrompt }] }] },
-            { headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiApiKey } }
-        );
-        return geminiRes.data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        return await callGeminiWithFallback(summaryPrompt);
     } catch (error) {
         console.error('Error summarizing conversation:', error);
         return ""; // Return empty string on error
@@ -266,12 +286,7 @@ whatsappClient.on('message', async (message) => {
                     let caption = '';
                     try {
                         const captionPrompt = `${systemPrompt}\n\nWrite a short, casual caption for this image request: '${message.body}'.`;
-                        const geminiRes = await axios.post(
-                            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
-                            { contents: [{ parts: [{ text: captionPrompt }] }] },
-                            { headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiApiKey } }
-                        );
-                        caption = geminiRes.data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+                        caption = (await callGeminiWithFallback(captionPrompt)).trim();
                     } catch (e) {
                         caption = '';
                     }
@@ -324,12 +339,7 @@ whatsappClient.on('message', async (message) => {
         let aiResponse = null;
         try {
             // Removed cooldown set
-            const geminiRes = await axios.post(
-                'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
-                { contents: [{ parts: [{ text: prompt }] }] },
-                { headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiApiKey } }
-            );
-            aiResponse = geminiRes.data.candidates?.[0]?.content?.parts?.[0]?.text || 'Sorry, I could not generate a response.';
+            aiResponse = await callGeminiWithFallback(prompt) || 'Sorry, I could not generate a response.';
         } catch (err) {
             console.error('Gemini API error:', err?.response?.data || err.message);
             aiResponse = 'Sorry, there was an error with the AI service.';
@@ -585,12 +595,7 @@ async function sendRandomWhatsAppMessages() {
     for (const { phoneNumber } of users) {
         try {
             const prompt = `${systemPrompt}\n\nWrite a single short WhatsApp message (max 2-3 words) to check in on a friend. Examples: 'hey', 'wyd', 'you good?', 'sup', 'yo', 'what you doing', 'all good?'.\n\nMessage:`;
-            const geminiRes = await axios.post(
-                'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
-                { contents: [{ parts: [{ text: prompt }] }] },
-                { headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiApiKey } }
-            );
-            const aiMessage = geminiRes.data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || 'hey';
+            const aiMessage = (await callGeminiWithFallback(prompt)).trim() || 'hey';
             const cleanNumber = phoneNumber.replace(/^\+/, '');
             const chatId = `${cleanNumber}@c.us`;
             await whatsappClient.sendMessage(chatId, aiMessage);
