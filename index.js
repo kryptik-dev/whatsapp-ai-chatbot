@@ -4,21 +4,19 @@ const { Client: WhatsAppClient, LocalAuth } = require('whatsapp-web.js');
 const QRCode = require('qrcode');
 const { systemPrompt } = require('./system_prompt');
 const { getUserMemory, addMessage, updateUserSummary } = require('./memory_store');
-const { isImageRequest, extractImagePrompt, searchImage } = require('./image_utils');
+const { isImageRequest, extractImagePrompt } = require('./image_utils');
 const FreeGPT3 = require('freegptjs');
 const openai = new FreeGPT3();
 const token = process.env.DISCORD_TOKEN;
 const mainChatChannelId = process.env.MAIN_CHAT_CHANNEL_ID;
 const yourUserId = process.env.YOUR_USER_ID;
 const geminiApiKey = process.env.GEMINI_API;
-const veniceOpenrouterApiKey = process.env.VENICE_OPENROUTER_API;
 const axios = require('axios');
 const express = require('express');
 const app = express();
 const fs = require('fs');
 const path = require('path');
 const PING_USERS_FILE = path.join(__dirname, 'ping_users.json');
-const { sendToVenice, sendToVeniceWithPrompt } = require('./venice_api');
 function loadPingUsers() {
     if (!fs.existsSync(PING_USERS_FILE)) return [];
     return JSON.parse(fs.readFileSync(PING_USERS_FILE, 'utf8'));
@@ -69,6 +67,13 @@ const stalkedUsers = new Set();
 const outgoingMessageQueues = new Map();
 const userMessageCount = new Map(); // Track message count for summarization
 let offlineTimer = null;
+
+const gis = require('async-g-i-s');
+const fetch = require('node-fetch');
+const { MessageMedia } = require('whatsapp-web.js');
+const os = require('os');
+const tempDir = path.join(__dirname, 'temp');
+if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
 
 // ---  Connection Stability & Auto-Restart ---
 whatsappClient.on('disconnected', (reason) => {
@@ -241,35 +246,46 @@ whatsappClient.on('message', async (message) => {
         // Prevent bot from replying to its own messages
         if (message.fromMe) return;
 
-        // --- IMAGE REQUEST HANDLING ---
+        // --- IMAGE SEARCH HANDLING ---
         if (isImageRequest(message.body)) {
-            // AI will generate the wait message as part of its response
-            // Wait 15-30 seconds, ignoring new messages from this user
-            outgoingMessageQueues.set(phoneNumber, []); // Block further messages for this user
-            const waitTime = 15000 + Math.floor(Math.random() * 15000);
+            // Human-like response
+            await chat.sendMessage("lemme find one");
+            const waitTime = Math.floor(Math.random() * 15000) + 15000; // 15-30 seconds
             await new Promise(res => setTimeout(res, waitTime));
-            outgoingMessageQueues.delete(phoneNumber); // Unblock after delay
-            // Search for image
-            const prompt = extractImagePrompt(message.body) || 'random image';
-            const imageResult = await searchImage(prompt, { query: { safe: "on" } });
-            if (!imageResult || !imageResult.url) {
-                await chat.sendMessage("couldn't find an image, sorry!");
-                return;
-            }
-            // Download image to /temp
-            const tempDir = path.join(__dirname, 'temp');
-            if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
-            const ext = path.extname(imageResult.url).split('?')[0] || '.jpg';
-            const tempFile = path.join(tempDir, `img_${Date.now()}${ext}`);
             try {
-                const response = await axios.get(imageResult.url, { responseType: 'arraybuffer' });
-                fs.writeFileSync(tempFile, response.data);
-                await chat.sendMessage(fs.createReadStream(tempFile), { sendMediaAsDocument: false });
-            } catch (err) {
-                await chat.sendMessage("couldn't download or send the image, sorry!");
-            } finally {
-                // Delete temp file
-                if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+                const results = await gis(message.body, { query: { safe: "on" } });
+                if (results.length > 0) {
+                    const imageUrl = results[0].url;
+                    // Download image to temp folder
+                    const fileName = `img_${Date.now()}.jpg`;
+                    const filePath = path.join(tempDir, fileName);
+                    const response = await fetch(imageUrl);
+                    const buffer = await response.buffer();
+                    fs.writeFileSync(filePath, buffer);
+                    // Generate a caption using Gemini
+                    let caption = '';
+                    try {
+                        const captionPrompt = `${systemPrompt}\n\nWrite a short, casual caption for this image request: '${message.body}'.`;
+                        const geminiRes = await axios.post(
+                            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+                            { contents: [{ parts: [{ text: captionPrompt }] }] },
+                            { headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiApiKey } }
+                        );
+                        caption = geminiRes.data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+                    } catch (e) {
+                        caption = '';
+                    }
+                    // Send image as attachment
+                    const media = await MessageMedia.fromFilePath(filePath);
+                    await chat.sendMessage(media, { caption });
+                    // Optionally, delete the temp file after sending
+                    fs.unlinkSync(filePath);
+                } else {
+                    await chat.sendMessage("sorry, i couldn't find an image for that");
+                }
+            } catch (e) {
+                await chat.sendMessage("there was an error searching for an image");
+                console.error(e);
             }
             return;
         }
@@ -307,12 +323,15 @@ whatsappClient.on('message', async (message) => {
 
         let aiResponse = null;
         try {
-            aiResponse = await sendToVeniceWithPrompt(
-                message.body,
-                recentHistory.map(msg => ({ role: msg.role, content: msg.content }))
+            // Removed cooldown set
+            const geminiRes = await axios.post(
+                'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+                { contents: [{ parts: [{ text: prompt }] }] },
+                { headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiApiKey } }
             );
+            aiResponse = geminiRes.data.candidates?.[0]?.content?.parts?.[0]?.text || 'Sorry, I could not generate a response.';
         } catch (err) {
-            console.error('Venice API error:', err);
+            console.error('Gemini API error:', err?.response?.data || err.message);
             aiResponse = 'Sorry, there was an error with the AI service.';
         }
 
@@ -566,24 +585,13 @@ async function sendRandomWhatsAppMessages() {
     for (const { phoneNumber } of users) {
         try {
             const prompt = `${systemPrompt}\n\nWrite a single short WhatsApp message (max 2-3 words) to check in on a friend. Examples: 'hey', 'wyd', 'you good?', 'sup', 'yo', 'what you doing', 'all good?'.\n\nMessage:`;
-            const openRouterRes = await axios.post(
-                'https://openrouter.ai/api/v1/chat/completions',
-                {
-                    model: 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free',
-                    messages: [
-                        { role: 'system', content: systemPrompt },
-                        { role: 'user', content: prompt }
-                    ]
-                },
-                {
-                    headers: {
-                        'Authorization': `Bearer ${veniceOpenrouterApiKey}`,
-                        'Content-Type': 'application/json'
-                    }
-                }
+            const geminiRes = await axios.post(
+                'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+                { contents: [{ parts: [{ text: prompt }] }] },
+                { headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiApiKey } }
             );
-            const aiMessage = openRouterRes.data.choices?.[0]?.message?.content?.trim() || 'hey';
-            const cleanNumber = phoneNumber.replace(/^[+]/, '');
+            const aiMessage = geminiRes.data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || 'hey';
+            const cleanNumber = phoneNumber.replace(/^\+/, '');
             const chatId = `${cleanNumber}@c.us`;
             await whatsappClient.sendMessage(chatId, aiMessage);
         } catch (err) {
