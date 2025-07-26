@@ -783,3 +783,11 @@ async function backupToGitHub() {
 setInterval(backupToGitHub, 60 * 60 * 1000);
 // Immediate backup on startup
 backupToGitHub(); 
+
+// Global error logging for uncaught exceptions and unhandled promise rejections
+process.on('uncaughtException', err => {
+  console.error('Uncaught Exception:', err);
+});
+process.on('unhandledRejection', err => {
+  console.error('Unhandled Rejection:', err);
+}); 

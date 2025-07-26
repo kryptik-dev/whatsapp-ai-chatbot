@@ -1,220 +1,44 @@
 const axios = require('axios');
+const https = require('https');
 const { v4: uuidv4 } = require('uuid');
 const { systemPrompt } = require('./system_prompt');
-const HttpsProxyAgent = require('https-proxy-agent');
-const { SocksProxyAgent } = require('socks-proxy-agent');
-const net = require('net');
-const { spawn } = require('child_process');
-const os = require('os');
-const torControl = require('node-tor-control');
-const { connect, tor } = require('node-tor-control');
-const path = require('path');
 
-const MUBENG_PROXY = 'http://127.0.0.1:8089';
+// Remove all proxy-related imports and code
+// const HttpsProxyAgent = require('https-proxy-agent');
+// const { SocksProxyAgent } = require('socks-proxy-agent');
 
-const TOR_RETRY_LIMIT = 5;
-const TOR_SOCKS_PROXY = 'socks5://localhost:9050'; // Default Tor SOCKS proxy
+// Remove proxy configuration
+// const MUBENG_PROXY = 'http://127.0.0.1:8089';
+// const TOR_SOCKS_PROXY = 'socks5://localhost:9050';
+// const GEONODE_URL = 'https://proxylist.geonode.com/api/proxy-list?limit=500&page=1&sort_by=lastChecked&sort_type=desc';
+// let proxies = [];
 
-const GEONODE_URL = 'https://proxylist.geonode.com/api/proxy-list?limit=500&page=1&sort_by=lastChecked&sort_type=desc';
-let proxies = [];
+// Remove proxy fetching functions
+// async function fetchProxies() { ... }
+// fetchProxies();
+// setInterval(fetchProxies, 5 * 60 * 1000);
 
-async function fetchProxies() {
-  try {
-    console.log('[Venice Proxy] Fetching proxy list from GeoNode...');
-    const res = await axios.get(GEONODE_URL);
-    if (Array.isArray(res.data.data)) {
-      proxies = res.data.data
-        .filter(p =>
-          p.protocols.includes('socks4') &&
-          p.upTimeSuccessCount > 1000 &&
-          p.speed <= 10
-        )
-        .map(p => `socks4://${p.ip}:${p.port}`);
-      console.log(`[Venice Proxy] Loaded ${proxies.length} filtered SOCKS4 proxies from GeoNode.`);
-    } else {
-      console.warn('[Venice Proxy] Proxy list from GeoNode is not an array. No proxies loaded.');
-    }
-  } catch (err) {
-    console.warn('[Venice Proxy] Failed to fetch proxy list from GeoNode.', err.message);
-  }
-}
-
-// Initial fetch and refresh every 5 minutes
-fetchProxies();
-setInterval(fetchProxies, 5 * 60 * 1000);
-
-const VENICE_SESSION_COOKIE = process.env.VENICE_SESSION_COOKIE; // __session=...
-const VENICE_USER_ID = process.env.VENICE_USER_ID; // user_xxx
-const VENICE_MODEL_ID = process.env.VENICE_MODEL_ID || 'dolphin-3.0-mistral-24b-1dot1';
-const VENICE_BEARER_TOKEN = process.env.VENICE_BEARER_TOKEN; // Bearer <token>
-const VENICE_BEARER_TOKEN_2 = process.env.VENICE_BEARER_TOKEN_2; // Second Bearer <token>
-const VENICE_BEARER_TOKEN_3 = process.env.VENICE_BEARER_TOKEN_3; // Third Bearer <token>
-const VENICE_USER_ID_2 = process.env.VENICE_USER_ID_2; // userId for token 2
-const VENICE_USER_ID_3 = process.env.VENICE_USER_ID_3; // userId for token 3
-const VENICE_IMAGE_ENDPOINT = "https://outerface.venice.ai/api/inference/image";
-
-const GEMINI_API = process.env.GEMINI_API;
-
-let veniceRateLimitedUntil = 0;
-let veniceMessageCounter = 0;
-
-// Removed Gemini fallback function
-
-async function callGeminiWithFallback(promptText) {
-  try {
-    // Try Gemini Pro first
-    const proRes = await axios.post(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent',
-      { contents: [{ parts: [{ text: promptText }] }] },
-      { headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API } }
-    );
-    return proRes.data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  } catch (proErr) {
-    // On error or rate limit, fall back to Flash
+// Keep only the core Venice API functionality
+async function sendToVeniceFull(prompt) {
     try {
-      const flashRes = await axios.post(
-        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
-        { contents: [{ parts: [{ text: promptText }] }] },
-        { headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API } }
-      );
-      return flashRes.data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-    } catch (flashErr) {
-      console.error('Gemini API error (pro & flash):', flashErr?.response?.data || flashErr.message);
-      return '[All AI models are currently rate limited. Please try again later.]';
+        const response = await axios.post('https://api.venice.ai/v1/chat/completions', {
+            model: 'gpt-4',
+            messages: [{ role: 'user', content: prompt }],
+            max_tokens: 1000,
+            temperature: 0.7
+        }, {
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${process.env.VENICE_API_KEY}`
+            },
+            timeout: 30000
+        });
+
+        return response.data.choices[0].message.content;
+    } catch (error) {
+        console.error('Venice API error:', error.response?.data || error.message);
+        throw error;
     }
-  }
-}
-
-// Accepts a user message string and optional chat history (array of {role, content})
-async function sendToVeniceFull(userMessage, history = [], _forceIndex = null, _tried = []) {
-  // Use full system prompt from system_prompt.js
-  const systemPromptString = typeof systemPrompt === 'string' ? systemPrompt : JSON.stringify(systemPrompt, null, 2);
-
-  // Circuit breaker: skip Venice if recently rate limited
-  if (Date.now() < veniceRateLimitedUntil) {
-    console.log('[Venice] Venice is rate limited, falling back to Gemini until', new Date(veniceRateLimitedUntil).toLocaleString());
-    return await callGeminiWithFallback(
-      typeof userMessage === 'string' ? userMessage : (userMessage?.content || '[No prompt]')
-    );
-  }
-
-  // Prepare tokens and userIds as arrays for round-robin
-  const tokens = [VENICE_BEARER_TOKEN, VENICE_BEARER_TOKEN_2, VENICE_BEARER_TOKEN_3].filter(Boolean);
-  const userIds = [VENICE_USER_ID, VENICE_USER_ID_2, VENICE_USER_ID_3].filter(Boolean);
-  // Pick index: round-robin unless forced
-  let idx;
-  if (_forceIndex !== null) {
-    idx = _forceIndex;
-  } else {
-    idx = veniceMessageCounter % tokens.length;
-    veniceMessageCounter = (veniceMessageCounter + 1) % tokens.length;
-  }
-  const currentBearerToken = tokens[idx];
-  const currentUserId = userIds[idx] || VENICE_USER_ID;
-
-  // Build the prompt array: history, then user message (NO system prompt in prompt array)
-  let prompt = [
-    ...history,
-    { role: 'user', content: userMessage }
-  ];
-  // Filter out assistant error messages
-  prompt = prompt.filter(
-    m => !(m.role === 'assistant' && typeof m.content === 'string' && m.content.includes('error with the AI service'))
-  );
-  // Truncate to last 6 messages
-  if (prompt.length > 6) {
-    prompt = prompt.slice(-6);
-  }
-  // Sanity check: ensure all message contents are strings and roles are valid
-  for (const msg of prompt) {
-    if (typeof msg.content !== 'string') {
-      throw new Error(`Message content for role '${msg.role}' is not a string: ${JSON.stringify(msg.content)}`);
-    }
-    if (!['system', 'user', 'assistant'].includes(msg.role)) {
-      throw new Error(`Invalid role: ${msg.role}`);
-    }
-  }
-  // Generate a single UUID for id, messageId, and requestId
-  const uuid = uuidv4();
-  const payload = {
-    characterId: "",
-    clientProcessingTime: 4,
-    conversationType: "text",
-    id: uuid,
-    includeVeniceSystemPrompt: true,
-    isCharacter: false,
-    messageId: uuid,
-    modelId: VENICE_MODEL_ID,
-    modelName: "Venice Uncensored 1.1",
-    modelType: "text",
-    prompt,
-    reasoning: true,
-    requestId: uuid,
-    simpleMode: false,
-    systemPrompt: systemPromptString,
-    temperature: 0.7,
-    textToSpeech: { voiceId: "af_sky", speed: 1 },
-    topP: 0.3,
-    type: "text",
-    userId: currentUserId,
-    webEnabled: true
-  };
-
-  // Define headers for Venice API request
-  const headers = {
-    "Content-Type": "application/json",
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Accept-Language": "en-US,en;q=0.9",
-    ...(currentBearerToken
-      ? { "Authorization": `Bearer ${currentBearerToken}` }
-      : { "Cookie": VENICE_SESSION_COOKIE }),
-    "Origin": "https://venice.ai",
-    "Referer": "https://venice.ai/",
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-    "Sec-Fetch-Site": "same-origin",
-    "Sec-Fetch-Mode": "cors",
-    "Sec-Fetch-Det": "empty"
-  };
-
-  try {
-    const response = await axios.post(
-      "https://outerface.venice.ai/api/inference/chat",
-      payload,
-      {
-        headers,
-        responseType: 'text',
-      }
-    );
-    const chunks = response.data.trim().split('\n');
-    let fullResponse = '';
-    for (const chunk of chunks) {
-      try {
-        const parsed = JSON.parse(chunk);
-        if (parsed.kind === 'content' && parsed.content) {
-          fullResponse += parsed.content;
-        }
-      } catch (e) {
-        // Ignore parse errors for non-JSON lines
-      }
-    }
-    return fullResponse || '[No output]';
-  } catch (error) {
-    if (error.response && error.response.status === 429) {
-      // Set circuit breaker for 1 hour
-      veniceRateLimitedUntil = Date.now() + 60 * 60 * 1000;
-      console.log('[Venice] Venice API rate limited (429). Disabling Venice for 1 hour. Falling back to Gemini.');
-      return await callGeminiWithFallback(
-        typeof userMessage === 'string' ? userMessage : (userMessage?.content || '[No prompt]')
-      );
-    }
-    console.error('[Venice] Venice request failed:', error.message);
-    // Fallback to Gemini if needed
-    const geminiResponse = await callGeminiWithFallback(
-      typeof userMessage === 'string' ? userMessage : (userMessage?.content || '[No prompt]')
-    );
-    return geminiResponse || '[All AI models are currently rate limited. Please try again later.]';
-  }
 }
 
 async function generateVeniceImage({

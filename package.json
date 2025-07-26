@@ -19,11 +19,8 @@
     "express": "^4.19.2",
     "freegptjs": "^0.0.2",
     "google-it": "^1.6.2",
-    "https-proxy-agent": "^7.0.6",
     "node-fetch": "^2.7.0",
-    "node-tor-control": "^0.0.2",
     "qrcode": "^1.5.3",
-    "socks-proxy-agent": "^8.0.5",
     "whatsapp-web.js": "^1.23.0"
   }
 }
