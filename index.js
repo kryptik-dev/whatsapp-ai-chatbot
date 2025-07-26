@@ -3,7 +3,8 @@ const { Client: DiscordClient, GatewayIntentBits, EmbedBuilder, AttachmentBuilde
 const { Client: WhatsAppClient, LocalAuth } = require('whatsapp-web.js');
 const QRCode = require('qrcode');
 const { systemPrompt } = require('./system_prompt');
-const { getUserMemory, addMessage, updateUserSummary } = require('./memory_store');
+const { addMemory, fetchRelevantMemories } = require('./memory_store');
+const { getConversationHistory, addMessageToHistory } = require('./conversation_history');
 const { isImageRequest, extractImagePrompt } = require('./image_utils');
 const FreeGPT3 = require('freegptjs');
 const openai = new FreeGPT3();
@@ -67,6 +68,18 @@ const stalkedUsers = new Set();
 const outgoingMessageQueues = new Map();
 const userMessageCount = new Map(); // Track message count for summarization
 let offlineTimer = null;
+let isWhatsAppReady = false;
+let whatsappMessageQueue = [];
+
+whatsappClient.on('ready', () => {
+    console.log('WhatsApp client is ready!');
+    isWhatsAppReady = true;
+    // Send any queued messages
+    for (const fn of whatsappMessageQueue) {
+        fn();
+    }
+    whatsappMessageQueue = [];
+});
 
 const gis = require('async-g-i-s');
 const fetch = require('node-fetch');
@@ -74,6 +87,8 @@ const { MessageMedia } = require('whatsapp-web.js');
 const os = require('os');
 const tempDir = path.join(__dirname, 'temp');
 if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
+const { googleSearch } = require('./web_search');
+const { sendToVeniceFull } = require('./venice_api');
 
 // ---  Connection Stability & Auto-Restart ---
 whatsappClient.on('disconnected', (reason) => {
@@ -136,7 +151,8 @@ Conversation:
 ${conversationText}
 
 Summary:`;
-        return await callGeminiWithFallback(summaryPrompt);
+        console.log('[AI] Using Venice AI API for summary');
+        return await sendToVeniceFull(summaryPrompt);
     } catch (error) {
         console.error('Error summarizing conversation:', error);
         return ""; // Return empty string on error
@@ -145,8 +161,8 @@ Summary:`;
 
 
 function processAndSplitText(text) {
-    // 1. Split by newlines first
-    let chunks = text.split('\n').map(c => c.trim()).filter(Boolean);
+    // Split at every single line break
+    let chunks = text.split(/\n+/).map(c => c.trim()).filter(Boolean);
     const MAX_CHUNK_LENGTH = 140;
     let tempChunks = [];
 
@@ -229,7 +245,11 @@ async function sendNextChunk(phoneNumber, chat) {
             return;
         }
 
-        await chat.sendMessage(chunk);
+        if (isWhatsAppReady) {
+            await chat.sendMessage(chunk);
+        } else {
+            whatsappMessageQueue.push(() => chat.sendMessage(chunk));
+        }
 
         if (outgoingMessageQueues.has(phoneNumber) && outgoingMessageQueues.get(phoneNumber).length > 0) {
             sendNextChunk(phoneNumber, chat); // Schedule the next chunk
@@ -286,7 +306,8 @@ whatsappClient.on('message', async (message) => {
                     let caption = '';
                     try {
                         const captionPrompt = `${systemPrompt}\n\nWrite a short, casual caption for this image request: '${message.body}'.`;
-                        caption = (await callGeminiWithFallback(captionPrompt)).trim();
+                        console.log('[AI] Using Venice AI API for caption');
+                        caption = (await sendToVeniceFull(captionPrompt)).trim();
                     } catch (e) {
                         caption = '';
                     }
@@ -305,45 +326,64 @@ whatsappClient.on('message', async (message) => {
             return;
         }
 
-        // --- Cooldown Logic ---
-        // Removed cooldown logic
-
-        // Add user message and then get the fresh memory
-        await addMessage(phoneNumber, { role: 'user', content: message.body });
-        let memory = await getUserMemory(phoneNumber);
-
-        // --- Summarization with FreeGPT3 ---
-        const currentCount = (userMessageCount.get(phoneNumber) || 0) + 1;
-        userMessageCount.set(phoneNumber, currentCount);
-        if (currentCount % 20 === 0) { // Every 20 messages
-            const historyToSummarize = memory.history.slice(-40).map(msg => `${msg.role}: ${msg.content}`).join('\n');
-            const summaryPrompt = `Summarize the following WhatsApp conversation in 1-2 paragraphs, focusing on key facts, topics, and user preferences.\n\nConversation:\n${historyToSummarize}\n\nSummary:`;
-            openai.chat.completions.create({
-                messages: [{ role: 'user', content: summaryPrompt }],
-                model: 'gpt-3.5-turbo',
-            }).then(chatCompletion => {
-                const summary = chatCompletion.choices?.[0]?.message?.content || '';
-                if (summary) updateUserSummary(phoneNumber, summary);
-            }).catch(err => {
-                console.error('FreeGPT3 summarization error:', err);
-            });
+        // --- Quoted Message Context ---
+        let quotedText = '';
+        if (message.hasQuotedMsg) {
+            try {
+                const quotedMsg = await message.getQuotedMessage();
+                if (quotedMsg && quotedMsg.body) {
+                    quotedText = quotedMsg.body;
+                }
+            } catch (e) {
+                console.error('Failed to fetch quoted message:', e);
+            }
         }
 
-        // --- Removed Automatic Summarization Logic ---
-        // Instead, always use last 20 messages for context
-        const recentHistory = memory.history.slice(-20); // Use last 20 messages for immediate context
-        const formattedHistory = recentHistory.map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`).join('\n');
+        // Add user message to memory and get relevant memories
+        await addMemory(message.body);
+        let relevantMemories = await fetchRelevantMemories(message.body, 3);
+        
+        // Add user message to conversation history
+        addMessageToHistory(phoneNumber, { role: 'user', content: message.body });
+        
+        // Get conversation history for context
+        const conversationHistory = getConversationHistory(phoneNumber);
+        const formattedHistory = conversationHistory.map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`).join('\n');
+        
+        // Format relevant memories for context
+        const memoriesContext = relevantMemories.length > 0 
+            ? `\n--- Relevant Past Memories ---\n${relevantMemories.map(m => m.text).join('\n')}` 
+            : '';
 
-        const prompt = `${systemPrompt}\n\n--- Recent Conversation ---\n${formattedHistory}\nUser: ${message.body}\nAssistant:`;
+        let userPrompt = '';
+        if (quotedText) {
+            userPrompt = `In reply to: ${quotedText}\nUser: ${message.body}`;
+        } else {
+            userPrompt = `User: ${message.body}`;
+        }
+
+        const prompt = `${systemPrompt}\n\n--- Recent Conversation ---\n${formattedHistory}${memoriesContext}\n${userPrompt}\nAssistant:`;
 
         let aiResponse = null;
         try {
             // Removed cooldown set
+            console.log('[AI] Using Gemini API for completion');
             aiResponse = await callGeminiWithFallback(prompt) || 'Sorry, I could not generate a response.';
+
+            // --- MEMORY SEARCH TOOL HANDLING ---
+            const searchRegex = /searchMemories\(['"](.+?)['"]\)/i;
+            const match = aiResponse.match(searchRegex);
+            if (match) {
+                const query = match[1];
+                const results = await fetchRelevantMemories(query, 5);
+                const memoriesText = results.map(m => m.text).join('\n');
+                const followupPrompt = `Memory search results for "${query}":\n${memoriesText}\nContinue your response using this information.`;
+                aiResponse = await callGeminiWithFallback(followupPrompt) || 'Sorry, I could not generate a response.';
+            }
 
             // --- IMAGE REQUEST MARKER HANDLING ---
             if (typeof aiResponse === 'string' && aiResponse.startsWith('[IMAGE_REQUEST:')) {
-                const match = aiResponse.match(/^\[IMAGE_REQUEST:(.*)\]$/);
+                const match = aiResponse.match(/^[\[]IMAGE_REQUEST:(.*)\]$/);
                 if (match) {
                     const imagePrompt = match[1].trim();
                     await chat.sendMessage("lemme find one");
@@ -361,6 +401,7 @@ whatsappClient.on('message', async (message) => {
                             let caption = '';
                             try {
                                 const captionPrompt = `${systemPrompt}\n\nWrite a short, casual caption for this image request: '${imagePrompt}'.`;
+                                console.log('[AI] Using Gemini API for caption');
                                 caption = (await callGeminiWithFallback(captionPrompt)).trim();
                             } catch (e) {
                                 caption = '';
@@ -378,12 +419,37 @@ whatsappClient.on('message', async (message) => {
                     return;
                 }
             }
+
+            // --- WEB SEARCH MARKER HANDLING ---
+            if (typeof aiResponse === 'string' && aiResponse.startsWith('[WEBSEARCH:')) {
+                const match = aiResponse.match(/^[\[]WEBSEARCH:(.*)\]$/);
+                if (match) {
+                    const searchQuery = match[1].trim();
+                    await chat.sendMessage("lemme check");
+                    try {
+                        const result = await googleSearch(searchQuery);
+                        // Compose a casual, short explanation with the result
+                        let reply = result;
+                        if (result && result.length > 0) {
+                            reply = result.length > 140 ? result.slice(0, 137) + '...' : result;
+                        } else {
+                            reply = "couldn't find anything useful, sorry!";
+                        }
+                        await chat.sendMessage(reply);
+                    } catch (e) {
+                        await chat.sendMessage("there was an error searching the web");
+                        console.error(e);
+                    }
+                    return;
+                }
+            }
         } catch (err) {
             console.error('Gemini API error:', err?.response?.data || err.message);
             aiResponse = 'Sorry, there was an error with the AI service.';
         }
 
-        await addMessage(phoneNumber, { role: 'assistant', content: aiResponse });
+        await addMemory(aiResponse);
+        addMessageToHistory(phoneNumber, { role: 'assistant', content: aiResponse });
 
         // --- DYNAMIC & INTERRUPTIBLE MESSAGE SENDING ---
         if (aiResponse) {
@@ -400,7 +466,11 @@ whatsappClient.on('message', async (message) => {
                     await chat.sendStateTyping();
                     await new Promise(res => setTimeout(res, typingDuration));
                 }
-                await chat.sendMessage(aiResponse);
+                if (isWhatsAppReady) {
+                    await chat.sendMessage(aiResponse);
+                } else {
+                    whatsappMessageQueue.push(() => chat.sendMessage(aiResponse));
+                }
                  if (typeof chat.sendStateIdle === 'function') {
                     await chat.sendStateIdle();
                 }
@@ -460,7 +530,11 @@ discordClient.on('messageCreate', async (message) => {
     if (phoneNumber) {
         const recipientId = `${phoneNumber}@c.us`;
         try {
-            await whatsappClient.sendMessage(recipientId, message.content);
+            if (isWhatsAppReady) {
+                await whatsappClient.sendMessage(recipientId, message.content);
+            } else {
+                whatsappMessageQueue.push(() => whatsappClient.sendMessage(recipientId, message.content));
+            }
             message.react('✅');
         } catch (error) {
             console.error('Failed to send WhatsApp reply:', error);
@@ -567,7 +641,11 @@ discordClient.on('interactionCreate', async (interaction) => {
         const recipientId = `${cleanRecipient}@c.us`;
 
         try {
-            await whatsappClient.sendMessage(recipientId, text);
+            if (isWhatsAppReady) {
+                await whatsappClient.sendMessage(recipientId, text);
+            } else {
+                whatsappMessageQueue.push(() => whatsappClient.sendMessage(recipientId, text));
+            }
 
             const embed = new EmbedBuilder()
                 .setColor('#00FF00')
@@ -633,7 +711,8 @@ async function sendRandomWhatsAppMessages() {
     for (const { phoneNumber } of users) {
         try {
             const prompt = `${systemPrompt}\n\nWrite a single short WhatsApp message (max 2-3 words) to check in on a friend. Examples: 'hey', 'wyd', 'you good?', 'sup', 'yo', 'what you doing', 'all good?'.\n\nMessage:`;
-            const aiMessage = (await callGeminiWithFallback(prompt)).trim() || 'hey';
+            console.log('[AI] Using Venice AI API for WhatsApp daily message');
+            const aiMessage = (await sendToVeniceFull(prompt)).trim() || 'hey';
             const cleanNumber = phoneNumber.replace(/^\+/, '');
             const chatId = `${cleanNumber}@c.us`;
             await whatsappClient.sendMessage(chatId, aiMessage);
@@ -641,4 +720,66 @@ async function sendRandomWhatsAppMessages() {
             console.error(`Failed to send random WhatsApp message to ${phoneNumber}:`, err);
         }
     }
-} 
+}
+
+// === Automated GitHub Backup for user_memories.json ===
+require('dotenv').config();
+
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+const REPO = 'kryptik-dev/whatsapp-ai-chatbot';
+const FILE_PATH = 'user_memories.json';
+const BRANCH = 'master';
+
+async function backupToGitHub() {
+  if (!GITHUB_TOKEN) {
+    console.error('GITHUB_TOKEN not set in environment. Skipping backup.');
+    return;
+  }
+  if (!fs.existsSync(FILE_PATH)) {
+    console.error(`${FILE_PATH} does not exist. Skipping backup.`);
+    return;
+  }
+  try {
+    const content = fs.readFileSync(FILE_PATH, 'utf8');
+    const base64Content = Buffer.from(content).toString('base64');
+
+    // Get the current file SHA (required for updates)
+    const resp = await fetch(`https://api.github.com/repos/${REPO}/contents/${FILE_PATH}`, {
+      headers: { Authorization: `token ${GITHUB_TOKEN}` }
+    });
+    let sha = undefined;
+    if (resp.ok) {
+      const data = await resp.json();
+      sha = data.sha;
+    }
+
+    // Update or create the file
+    const updateResp = await fetch(`https://api.github.com/repos/${REPO}/contents/${FILE_PATH}`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `token ${GITHUB_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        message: `Automated backup: ${new Date().toISOString()}`,
+        content: base64Content,
+        branch: BRANCH,
+        ...(sha ? { sha } : {})
+      })
+    });
+
+    if (updateResp.ok) {
+      console.log('Backup pushed to GitHub!');
+    } else {
+      const err = await updateResp.text();
+      console.error('Backup failed:', err);
+    }
+  } catch (e) {
+    console.error('Backup failed:', e.message);
+  }
+}
+
+// Run backup every hour (3600000 ms)
+setInterval(backupToGitHub, 60 * 60 * 1000);
+// Immediate backup on startup
+backupToGitHub(); 

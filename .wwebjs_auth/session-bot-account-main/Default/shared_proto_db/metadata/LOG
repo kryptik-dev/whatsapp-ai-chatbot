@@ -1,3 +1,2 @@
-2025/07/22-17:40:14.416 68c Reusing MANIFEST D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\shared_proto_db\metadata/MANIFEST-000001
-2025/07/22-17:40:14.417 68c Recovering log #3
-2025/07/22-17:40:14.417 68c Reusing old log D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\shared_proto_db\metadata/000003.log 
+2025/07/26-11:02:41.234 2418 Creating DB D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\shared_proto_db\metadata since it was missing.
+2025/07/26-11:02:41.241 2418 Reusing MANIFEST D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\shared_proto_db\metadata/MANIFEST-000001

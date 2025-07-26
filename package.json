@@ -10,14 +10,20 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@google/genai": "latest",
     "async-g-i-s": "^1.5.5",
-    "axios": "^1.6.7",
+    "axios": "^1.11.0",
+    "compute-cosine-similarity": "^1.0.0",
     "discord.js": "^14.13.0",
-    "dotenv": "^16.4.5",
+    "dotenv": "^16.0.0",
     "express": "^4.19.2",
     "freegptjs": "^0.0.2",
+    "google-it": "^1.6.2",
+    "https-proxy-agent": "^7.0.6",
     "node-fetch": "^2.7.0",
+    "node-tor-control": "^0.0.2",
     "qrcode": "^1.5.3",
+    "socks-proxy-agent": "^8.0.5",
     "whatsapp-web.js": "^1.23.0"
   }
 }

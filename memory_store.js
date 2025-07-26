@@ -1,74 +1,80 @@
-const fs = require('fs').promises;
-const path = require('path');
+// Gemini Embedding Memory Store
+require('dotenv').config();
+const { GoogleGenAI } = require('@google/genai');
+const cosineSimilarity = require('compute-cosine-similarity');
+const fs = require('fs');
 
-const MEMORY_FILE = path.join(__dirname, 'user_memories.json');
-const MAX_HISTORY_LENGTH = 100;
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API });
+const MEMORIES_FILE = 'user_memories.json';
 
-// Load all memories from disk
-async function loadMemories() {
-    try {
-        const data = await fs.readFile(MEMORY_FILE, 'utf8');
-        const memories = JSON.parse(data);
-        // Ensure all user memories conform to the new structure
-        for (const userId in memories) {
-            if (Array.isArray(memories[userId])) {
-                // This is the old format, convert it
-                memories[userId] = {
-                    history: memories[userId],
-                    summary: "" 
-                };
-            }
-        }
-        return memories;
-    } catch (err) {
-        if (err.code === 'ENOENT') {
-            await fs.writeFile(MEMORY_FILE, '{}');
-            return {};
-        }
-        throw err;
-    }
+// Helper: Normalize embedding vector
+function normalize(vec) {
+  const norm = Math.sqrt(vec.reduce((sum, v) => sum + v * v, 0));
+  return vec.map(v => v / norm);
 }
 
-// Save all memories to disk
-async function saveMemories(memories) {
-    await fs.writeFile(MEMORY_FILE, JSON.stringify(memories, null, 2), 'utf8');
+// Generate embedding for text
+async function embedText(text) {
+  const response = await ai.models.embedContent({
+    model: 'gemini-embedding-001',
+    contents: [text], // correct param name
+    outputDimensionality: 768,
+  });
+  return normalize(response.embeddings[0].values); // extract from first embedding
 }
 
-// Get a user's entire memory object { history, summary }
-async function getUserMemory(userId) {
-    const memories = await loadMemories();
-    if (!memories[userId]) {
-        return { history: [], summary: "" };
-    }
-    return memories[userId];
+// Add a memory (text + embedding) to JSON
+async function addMemory(text) {
+  // Filter out error/rate limit/empty messages
+  const lower = text.toLowerCase();
+  if (
+    lower.includes('rate limited') ||
+    lower.includes('error with the ai service') ||
+    lower.includes('no output from venice') ||
+    lower.includes('could not generate a response') ||
+    lower.trim() === ''
+  ) {
+    return; // Don't add these to memory
+  }
+  const embedding = await embedText(text);
+  let memories = [];
+  if (fs.existsSync(MEMORIES_FILE)) {
+    memories = JSON.parse(fs.readFileSync(MEMORIES_FILE, 'utf8'));
+  }
+  memories.push({ text, embedding });
+  fs.writeFileSync(MEMORIES_FILE, JSON.stringify(memories, null, 2));
 }
 
-// Add a message to a user's history
-async function addMessage(userId, message) {
-    const memories = await loadMemories();
-    if (!memories[userId]) {
-        memories[userId] = { history: [], summary: "" };
+// On startup, embed any memories missing an embedding
+(async () => {
+  if (fs.existsSync(MEMORIES_FILE)) {
+    let memories = JSON.parse(fs.readFileSync(MEMORIES_FILE, 'utf8'));
+    let updated = false;
+    for (const mem of memories) {
+      if (!Array.isArray(mem.embedding)) {
+        mem.embedding = await embedText(mem.text);
+        updated = true;
+      }
     }
-    memories[userId].history.push(message);
-    if (memories[userId].history.length > MAX_HISTORY_LENGTH) {
-        memories[userId].history = memories[userId].history.slice(-MAX_HISTORY_LENGTH);
+    if (updated) {
+      fs.writeFileSync(MEMORIES_FILE, JSON.stringify(memories, null, 2));
     }
-    await saveMemories(memories);
+  }
+})();
+
+// Fetch top N relevant memories for a query
+async function fetchRelevantMemories(query, topN = 5) {
+  const queryEmbedding = await embedText(query);
+  if (!fs.existsSync(MEMORIES_FILE)) return [];
+  const memories = JSON.parse(fs.readFileSync(MEMORIES_FILE, 'utf8'));
+  const scored = memories
+    .filter(mem => Array.isArray(mem.embedding))
+    .map(mem => ({
+      ...mem,
+      similarity: cosineSimilarity(queryEmbedding, mem.embedding)
+    }));
+  scored.sort((a, b) => b.similarity - a.similarity);
+  return scored.slice(0, topN);
 }
 
-// Update a user's summary
-async function updateUserSummary(userId, summary) {
-    const memories = await loadMemories();
-    if (!memories[userId]) {
-        memories[userId] = { history: [], summary: "" };
-    }
-    memories[userId].summary = summary;
-    await saveMemories(memories);
-}
-
-
-module.exports = {
-    getUserMemory,
-    addMessage,
-    updateUserSummary
-}; 
+module.exports = { addMemory, fetchRelevantMemories }; 
