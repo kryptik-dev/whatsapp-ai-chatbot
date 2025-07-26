@@ -3,7 +3,7 @@ const { Client: DiscordClient, GatewayIntentBits, EmbedBuilder, AttachmentBuilde
 const { Client: WhatsAppClient, LocalAuth } = require('whatsapp-web.js');
 const QRCode = require('qrcode');
 const { systemPrompt } = require('./system_prompt');
-const { addMemory, fetchRelevantMemories } = require('./memory_store');
+const { addMemory, fetchRelevantMemories, checkAndCleanupIfNeeded } = require('./supabase_memories');
 const { getConversationHistory, addMessageToHistory } = require('./conversation_history');
 const { isImageRequest, extractImagePrompt } = require('./image_utils');
 const FreeGPT3 = require('freegptjs');
@@ -79,6 +79,11 @@ whatsappClient.on('ready', () => {
         fn();
     }
     whatsappMessageQueue = [];
+    
+    // Check database size and cleanup if needed
+    checkAndCleanupIfNeeded().catch(err => {
+        console.error('Error during database cleanup check:', err);
+    });
 });
 
 const gis = require('async-g-i-s');
