@@ -46,7 +46,7 @@ async function embedText(text) {
 }
 
 // Function to add memory to Supabase
-export async function addMemory(text, isPinned = false) {
+export async function addMemory(text, userId, isPinned = false) {
     try {
         // Skip error messages and system messages
         if (text.includes('Sorry, there was an error') || 
@@ -72,14 +72,15 @@ export async function addMemory(text, isPinned = false) {
                 {
                     text: text,
                     embedding: embedding,
-                    pinned: shouldPin
+                    pinned: shouldPin,
+                    user_id: userId
                 }
             ]);
 
         if (error) {
             console.error('Error adding memory to Supabase:', error);
         } else {
-            console.log(`Memory added${shouldPin ? ' (PINNED)' : ''}:`, text.substring(0, 50) + '...');
+            console.log(`Memory added for user ${userId}${shouldPin ? ' (PINNED)' : ''}:`, text.substring(0, 50) + '...');
         }
     } catch (error) {
         console.error('Error in addMemory:', error);
@@ -87,7 +88,7 @@ export async function addMemory(text, isPinned = false) {
 }
 
 // Function to fetch relevant memories
-export async function fetchRelevantMemories(query, limit = 10) {
+export async function fetchRelevantMemories(query, userId, limit = 10) {
     try {
         const queryEmbedding = await embedText(query);
         if (!queryEmbedding) {
@@ -95,8 +96,9 @@ export async function fetchRelevantMemories(query, limit = 10) {
             return [];
         }
 
-        const { data, error } = await supabase.rpc('match_memories', {
+        const { data, error } = await supabase.rpc('match_memories_for_user', {
             query_embedding: queryEmbedding,
+            user_id_param: userId,
             match_threshold: 0.3,
             match_count: limit
         });
@@ -114,9 +116,11 @@ export async function fetchRelevantMemories(query, limit = 10) {
 }
 
 // Function to get pinned memories
-export async function getPinnedMemories() {
+export async function getPinnedMemories(userId) {
     try {
-        const { data, error } = await supabase.rpc('get_pinned_memories');
+        const { data, error } = await supabase.rpc('get_pinned_memories_for_user', {
+            user_id_param: userId
+        });
         
         if (error) {
             console.error('Error fetching pinned memories:', error);
@@ -131,13 +135,13 @@ export async function getPinnedMemories() {
 }
 
 // Function to get all memories for context (pinned + relevant)
-export async function getMemoryContext(query, limit = 10) {
+export async function getMemoryContext(query, userId, limit = 10) {
     try {
         // Get pinned memories first
-        const pinnedMemories = await getPinnedMemories();
+        const pinnedMemories = await getPinnedMemories(userId);
         
         // Get relevant memories
-        const relevantMemories = await fetchRelevantMemories(query, limit);
+        const relevantMemories = await fetchRelevantMemories(query, userId, limit);
         
         // Combine and deduplicate (pinned memories take priority)
         const pinnedIds = new Set(pinnedMemories.map(m => m.id));

@@ -353,8 +353,8 @@ whatsappClient.on('message', async (message) => {
         }
 
         // Add user message to memory and get memory context (pinned + relevant)
-        await addMemory(message.body);
-        const memoryContext = await getMemoryContext(message.body, 10);
+        await addMemory(message.body, phoneNumber);
+        const memoryContext = await getMemoryContext(message.body, phoneNumber, 10);
         
         // Add user message to conversation history
         addMessageToHistory(phoneNumber, { role: 'user', content: message.body });
@@ -388,7 +388,7 @@ whatsappClient.on('message', async (message) => {
             const match = aiResponse.match(searchRegex);
             if (match) {
                 const query = match[1];
-                const results = await fetchRelevantMemories(query, 5);
+                const results = await fetchRelevantMemories(query, phoneNumber, 5);
                 const memoriesText = results.map(m => m.text).join('\n');
                 const followupPrompt = `Memory search results for "${query}":\n${memoriesText}\nContinue your response using this information.`;
                 aiResponse = await callGeminiWithFallback(followupPrompt) || 'Sorry, I could not generate a response.';
@@ -461,7 +461,7 @@ whatsappClient.on('message', async (message) => {
             aiResponse = 'Sorry, there was an error with the AI service.';
         }
 
-        await addMemory(aiResponse);
+        await addMemory(aiResponse, phoneNumber);
         addMessageToHistory(phoneNumber, { role: 'assistant', content: aiResponse });
 
         // --- DYNAMIC & INTERRUPTIBLE MESSAGE SENDING ---
