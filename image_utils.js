@@ -1,5 +1,5 @@
 // Simple keyword-based detection for image requests
-function isImageRequest(message) {
+export function isImageRequest(message) {
     const triggers = [
         'draw',
         'generate an image',
@@ -21,7 +21,7 @@ function isImageRequest(message) {
 }
 
 // Extract the image prompt from the message (basic version)
-function extractImagePrompt(message) {
+export function extractImagePrompt(message) {
     // Remove trigger phrases for a cleaner prompt
     let prompt = message;
     [
@@ -47,6 +47,4 @@ function extractImagePrompt(message) {
         prompt = prompt.replace(new RegExp(trigger, 'i'), '');
     });
     return prompt.trim();
-}
-
-module.exports = { isImageRequest, extractImagePrompt }; 
+} 

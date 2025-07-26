@@ -1,6 +1,6 @@
-const googleIt = require('google-it');
+import googleIt from 'google-it';
 
-async function googleSearch(query) {
+export async function googleSearch(query) {
     try {
         const results = await googleIt({ query });
         if (Array.isArray(results) && results.length > 0) {
@@ -12,6 +12,4 @@ async function googleSearch(query) {
     } catch (e) {
         return "Sorry, there was an error searching Google.";
     }
-}
-
-module.exports = { googleSearch }; 
+} 

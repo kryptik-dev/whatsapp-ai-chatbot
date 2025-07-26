@@ -1,8 +1,9 @@
-const axios = require('axios');
-const https = require('https');
-const path = require('path');
-const { v4: uuidv4 } = require('uuid');
-const { systemPrompt } = require('./system_prompt');
+import axios from 'axios';
+import https from 'https';
+import path from 'path';
+import pkg from 'uuid';
+const { v4: uuidv4 } = pkg;
+import { systemPrompt } from './system_prompt.js';
 
 // Remove all proxy-related imports and code
 // const HttpsProxyAgent = require('https-proxy-agent');
@@ -20,7 +21,7 @@ const { systemPrompt } = require('./system_prompt');
 // setInterval(fetchProxies, 5 * 60 * 1000);
 
 // Keep only the core Venice API functionality
-async function sendToVeniceFull(prompt) {
+export async function sendToVeniceFull(prompt) {
     try {
         const response = await axios.post('https://api.venice.ai/v1/chat/completions', {
             model: 'gpt-4',
@@ -42,7 +43,7 @@ async function sendToVeniceFull(prompt) {
     }
 }
 
-async function generateVeniceImage({
+export async function generateVeniceImage({
   prompt,
   userId = VENICE_USER_ID,
   bearerToken = VENICE_BEARER_TOKEN,
@@ -102,14 +103,14 @@ async function generateVeniceImage({
 }
 
 // --- Simple Express server and UI for testing ---
-const express = require('express');
-const bodyParser = require('body-parser');
+import express from 'express';
+import bodyParser from 'body-parser';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(bodyParser.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(process.cwd(), 'public')));
 
 // Serve a simple HTML UI
 app.get('/', (req, res) => {
@@ -259,10 +260,10 @@ app.post('/api/image', async (req, res) => {
   }
 });
 
-if (require.main === module) {
+if (import.meta.url === `file://${process.argv[1]}`) {
   app.listen(PORT, () => {
     console.log(`Venice AI Tester running at http://localhost:${PORT}`);
   });
 }
 
-module.exports = { sendToVeniceFull, sendToVeniceWithPrompt: sendToVeniceFull }; 
+export { sendToVeniceFull as sendToVeniceWithPrompt }; 

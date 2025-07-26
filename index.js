@@ -1,30 +1,33 @@
-require('dotenv').config({ path: './.env' });
-const { Client: DiscordClient, GatewayIntentBits, EmbedBuilder, AttachmentBuilder, ChannelType, PermissionsBitField, ActivityType } = require('discord.js');
-const { Client: WhatsAppClient, LocalAuth } = require('whatsapp-web.js');
-const QRCode = require('qrcode');
-const { systemPrompt } = require('./system_prompt');
-const { addMemory, fetchRelevantMemories, checkAndCleanupIfNeeded } = require('./supabase_memories');
-const { getConversationHistory, addMessageToHistory } = require('./conversation_history');
-const { isImageRequest, extractImagePrompt } = require('./image_utils');
-const FreeGPT3 = require('freegptjs');
+import { systemPrompt } from './system_prompt.js';
+import { addMemory, fetchRelevantMemories, getPinnedMemories, getMemoryContext, getDatabaseSize, cleanOldMemories, exportMemoriesToJson, checkAndCleanupIfNeeded } from './supabase_memories.js';
+import { getConversationHistory, addMessageToHistory } from './conversation_history.js';
+import { isImageRequest, extractImagePrompt } from './image_utils.js';
+import FreeGPT3 from 'freegptjs';
+import { Client as DiscordClient, GatewayIntentBits, EmbedBuilder, AttachmentBuilder, ChannelType, PermissionsBitField, ActivityType } from 'discord.js';
+import pkg from 'whatsapp-web.js';
+const { Client: WhatsAppClient, LocalAuth, MessageMedia } = pkg;
+import QRCode from 'qrcode';
+import { googleSearch } from './web_search.js';
+import { sendToVeniceFull } from './venice_api.js';
+import os from 'os';
+import fs from 'fs';
+import path from 'path';
+import express from 'express';
+import dotenv from 'dotenv';
+import gis from 'async-g-i-s';
+import fetch from 'node-fetch';
+import axios from 'axios';
+dotenv.config();
+
 const openai = new FreeGPT3();
+
 const token = process.env.DISCORD_TOKEN;
 const mainChatChannelId = process.env.MAIN_CHAT_CHANNEL_ID;
 const yourUserId = process.env.YOUR_USER_ID;
 const geminiApiKey = process.env.GEMINI_API;
-const axios = require('axios');
-const express = require('express');
+const PORT = process.env.PORT || 3000;
+
 const app = express();
-const fs = require('fs');
-const path = require('path');
-const PING_USERS_FILE = path.join(__dirname, 'ping_users.json');
-function loadPingUsers() {
-    if (!fs.existsSync(PING_USERS_FILE)) return [];
-    return JSON.parse(fs.readFileSync(PING_USERS_FILE, 'utf8'));
-}
-function savePingUsers(users) {
-    fs.writeFileSync(PING_USERS_FILE, JSON.stringify(users, null, 2));
-}
 
 app.get('/', (req, res) => {
     res.send(`
@@ -38,7 +41,6 @@ app.get('/', (req, res) => {
     `);
 });
 
-const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Express server listening on port ${PORT}`);
 });
@@ -86,14 +88,20 @@ whatsappClient.on('ready', () => {
     });
 });
 
-const gis = require('async-g-i-s');
-const fetch = require('node-fetch');
-const { MessageMedia } = require('whatsapp-web.js');
-const os = require('os');
-const tempDir = path.join(__dirname, 'temp');
+const tempDir = path.join(process.cwd(), 'temp');
 if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
-const { googleSearch } = require('./web_search');
-const { sendToVeniceFull } = require('./venice_api');
+
+// Load and save ping users functions
+function loadPingUsers() {
+    const pingUsersFile = path.join(process.cwd(), 'ping_users.json');
+    if (!fs.existsSync(pingUsersFile)) return [];
+    return JSON.parse(fs.readFileSync(pingUsersFile, 'utf8'));
+}
+
+function savePingUsers(users) {
+    const pingUsersFile = path.join(process.cwd(), 'ping_users.json');
+    fs.writeFileSync(pingUsersFile, JSON.stringify(users, null, 2));
+}
 
 // ---  Connection Stability & Auto-Restart ---
 whatsappClient.on('disconnected', (reason) => {
@@ -344,9 +352,9 @@ whatsappClient.on('message', async (message) => {
             }
         }
 
-        // Add user message to memory and get relevant memories
+        // Add user message to memory and get memory context (pinned + relevant)
         await addMemory(message.body);
-        let relevantMemories = await fetchRelevantMemories(message.body, 3);
+        const memoryContext = await getMemoryContext(message.body, 10);
         
         // Add user message to conversation history
         addMessageToHistory(phoneNumber, { role: 'user', content: message.body });
@@ -355,9 +363,9 @@ whatsappClient.on('message', async (message) => {
         const conversationHistory = getConversationHistory(phoneNumber);
         const formattedHistory = conversationHistory.map(msg => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`).join('\n');
         
-        // Format relevant memories for context
-        const memoriesContext = relevantMemories.length > 0 
-            ? `\n--- Relevant Past Memories ---\n${relevantMemories.map(m => m.text).join('\n')}` 
+        // Format memory context (pinned memories first, then relevant)
+        const memoriesContext = memoryContext.length > 0 
+            ? `\n--- Memory Context (Pinned + Relevant) ---\n${memoryContext.map(m => m.text).join('\n')}` 
             : '';
 
         let userPrompt = '';
@@ -728,7 +736,6 @@ async function sendRandomWhatsAppMessages() {
 }
 
 // === Automated GitHub Backup for user_memories.json ===
-require('dotenv').config();
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 const REPO = 'kryptik-dev/whatsapp-ai-chatbot';

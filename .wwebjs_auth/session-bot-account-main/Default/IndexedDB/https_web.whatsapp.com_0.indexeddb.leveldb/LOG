@@ -1,6 +1,4 @@
-2025/07/26-16:46:22.915 54d0 Reusing MANIFEST D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
-2025/07/26-16:46:22.915 54d0 Recovering log #120
-2025/07/26-16:46:22.971 54d0 Reusing old log D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/000120.log 
-2025/07/26-16:46:22.971 54d0 Delete type=2 #118
-2025/07/26-16:46:22.971 54d0 Delete type=2 #121
-2025/07/26-16:46:26.049 3980 Manual compaction at level-0 from '\x003\x00\x00\x00' @ 72057594037927935 : 1 .. '\x004\x00\x00\x00' @ 0 : 0; will stop at (end)
+2025/07/26-19:33:48.658 3908 Reusing MANIFEST D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
+2025/07/26-19:33:48.659 3908 Recovering log #128
+2025/07/26-19:33:48.715 3908 Reusing old log D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/000128.log 
+2025/07/26-19:33:51.441 4784 Manual compaction at level-0 from '\x006\x00\x00\x00' @ 72057594037927935 : 1 .. '\x007\x00\x00\x00' @ 0 : 0; will stop at (end)
