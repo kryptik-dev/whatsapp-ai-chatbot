@@ -1,5 +1,6 @@
 const axios = require('axios');
 const https = require('https');
+const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const { systemPrompt } = require('./system_prompt');
 
