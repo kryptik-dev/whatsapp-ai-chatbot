@@ -105,6 +105,12 @@ function savePingUsers(users) {
     fs.writeFileSync(pingUsersFile, JSON.stringify(users, null, 2));
 }
 
+// Function to randomly decide if we should reply to a message
+function shouldReplyToMessage() {
+    // 30% chance to reply to the message instead of sending a new message
+    return Math.random() < 0.3;
+}
+
 // ---  Connection Stability & Auto-Restart ---
 whatsappClient.on('disconnected', (reason) => {
     console.log('❌ WhatsApp client was logged out:', reason);
@@ -718,6 +724,9 @@ Message: ${message.body}`;
 
         // --- DYNAMIC & INTERRUPTIBLE MESSAGE SENDING ---
         if (aiResponse) {
+            // Randomly decide if we should reply to the message or send a new message
+            const shouldReply = shouldReplyToMessage();
+            
             // Human-like: split multi-line responses into separate messages
             const lines = aiResponse.split('\n').map(line => line.trim()).filter(Boolean);
             if (lines.length > 1) {
@@ -729,9 +738,17 @@ Message: ${message.body}`;
                             await new Promise(res => setTimeout(res, 1000 + Math.random() * 2000)); // 1-3 seconds typing
                         }
                         if (isWhatsAppReady) {
-                            await chat.sendMessage(line);
+                            if (shouldReply) {
+                                await chat.sendMessage(line, { quotedMessageId: message.id._serialized });
+                            } else {
+                                await chat.sendMessage(line);
+                            }
                         } else {
-                            whatsappMessageQueue.push(() => chat.sendMessage(line));
+                            if (shouldReply) {
+                                whatsappMessageQueue.push(() => chat.sendMessage(line, { quotedMessageId: message.id._serialized }));
+                            } else {
+                                whatsappMessageQueue.push(() => chat.sendMessage(line));
+                            }
                         }
                         if (typeof chat.sendStateIdle === 'function') {
                             await chat.sendStateIdle();
@@ -748,9 +765,17 @@ Message: ${message.body}`;
                     await new Promise(res => setTimeout(res, typingDuration));
                 }
                 if (isWhatsAppReady) {
-                    await chat.sendMessage(aiResponse);
+                    if (shouldReply) {
+                        await chat.sendMessage(aiResponse, { quotedMessageId: message.id._serialized });
+                    } else {
+                        await chat.sendMessage(aiResponse);
+                    }
                 } else {
-                    whatsappMessageQueue.push(() => chat.sendMessage(aiResponse));
+                    if (shouldReply) {
+                        whatsappMessageQueue.push(() => chat.sendMessage(aiResponse, { quotedMessageId: message.id._serialized }));
+                    } else {
+                        whatsappMessageQueue.push(() => chat.sendMessage(aiResponse));
+                    }
                 }
                 if (typeof chat.sendStateIdle === 'function') {
                     await chat.sendStateIdle();

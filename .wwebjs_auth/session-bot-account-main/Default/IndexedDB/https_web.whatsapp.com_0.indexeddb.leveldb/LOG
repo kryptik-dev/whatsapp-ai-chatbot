@@ -1,17 +1,15 @@
-2025/07/29-18:58:48.258 464 Reusing MANIFEST D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
-2025/07/29-18:58:48.259 464 Recovering log #210
-2025/07/29-18:58:48.343 464 Reusing old log D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/000210.log 
-2025/07/29-18:58:48.344 464 Delete type=2 #208
-2025/07/29-18:58:48.344 464 Delete type=2 #211
-2025/07/29-18:58:51.121 372c Level-0 table #216: started
-2025/07/29-18:58:51.140 372c Level-0 table #216: 470639 bytes OK
-2025/07/29-18:58:51.143 372c Delete type=0 #210
-2025/07/29-18:58:51.144 372c Manual compaction at level-0 from '\x00N\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00O\x00\x00\x00' @ 0 : 0; will stop at (end)
-2025/07/29-18:58:59.028 6664 Compacting 1@1 + 2@2 files
-2025/07/29-18:58:59.325 6664 Generated table #217@1: 63756 keys, 2237105 bytes
-2025/07/29-18:58:59.335 6664 Generated table #218@1: 2957 keys, 60627 bytes
-2025/07/29-18:58:59.335 6664 Compacted 1@1 + 2@2 files => 2297732 bytes
-2025/07/29-18:58:59.336 6664 compacted to: files[ 0 0 2 0 0 0 0 ]
-2025/07/29-18:58:59.336 6664 Delete type=2 #212
-2025/07/29-18:58:59.337 6664 Delete type=2 #213
-2025/07/29-18:58:59.337 6664 Delete type=2 #216
+2025/07/29-19:48:17.225 1b80 Reusing MANIFEST D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
+2025/07/29-19:48:17.225 1b80 Recovering log #220
+2025/07/29-19:48:17.289 1b80 Reusing old log D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/000220.log 
+2025/07/29-19:48:22.239 47a0 Level-0 table #226: started
+2025/07/29-19:48:22.252 47a0 Level-0 table #226: 517044 bytes OK
+2025/07/29-19:48:22.254 47a0 Delete type=0 #220
+2025/07/29-19:48:22.255 47a0 Manual compaction at level-0 from '\x00P\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00Q\x00\x00\x00' @ 0 : 0; will stop at (end)
+2025/07/29-19:48:24.304 47b4 Compacting 1@1 + 2@2 files
+2025/07/29-19:48:24.500 47b4 Generated table #227@1: 65192 keys, 2242131 bytes
+2025/07/29-19:48:24.512 47b4 Generated table #228@1: 4800 keys, 166238 bytes
+2025/07/29-19:48:24.512 47b4 Compacted 1@1 + 2@2 files => 2408369 bytes
+2025/07/29-19:48:24.514 47b4 compacted to: files[ 0 0 2 0 0 0 0 ]
+2025/07/29-19:48:24.514 47b4 Delete type=2 #222
+2025/07/29-19:48:24.514 47b4 Delete type=2 #223
+2025/07/29-19:48:24.515 47b4 Delete type=2 #226
