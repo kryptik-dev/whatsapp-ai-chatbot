@@ -32,16 +32,24 @@ function isIdentityMessage(text) {
 
 // Function to embed text using Gemini
 async function embedText(text) {
-    try {
-        const response = await genAI.models.embedContent({
-            model: 'gemini-embedding-001',
-            contents: [text], // correct param name
-            outputDimensionality: 3072, // Use 3072 dimensions to match our Supabase table
-        });
-        return response.embeddings[0].values; // extract from first embedding
-    } catch (error) {
-        console.error('Error embedding text:', error);
-        return null;
+    const maxRetries = 3;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            const response = await genAI.models.embedContent({
+                model: 'gemini-embedding-001',
+                contents: [text], // correct param name
+                outputDimensionality: 3072, // Use 3072 dimensions to match our Supabase table
+            });
+            return response.embeddings[0].values; // extract from first embedding
+        } catch (error) {
+            console.error(`Error embedding text (attempt ${attempt}/${maxRetries}):`, error.message);
+            if (attempt === maxRetries) {
+                console.error('Failed to embed text after all retries');
+                return null;
+            }
+            // Wait before retrying (exponential backoff)
+            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        }
     }
 }
 
@@ -57,8 +65,8 @@ export async function addMemory(text, userId, isPinned = false) {
             return;
         }
 
-        // Check if this is an identity message
-        const shouldPin = isPinned || isIdentityMessage(text);
+        // Use only the AI classification for pinning, not regex patterns
+        const shouldPin = isPinned;
         
         const embedding = await embedText(text);
         if (!embedding) {

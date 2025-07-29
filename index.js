@@ -8,7 +8,6 @@ import pkg from 'whatsapp-web.js';
 const { Client: WhatsAppClient, LocalAuth, MessageMedia } = pkg;
 import QRCode from 'qrcode';
 import { googleSearch } from './web_search.js';
-import { sendToVeniceFull } from './venice_api.js';
 import os from 'os';
 import fs from 'fs';
 import path from 'path';
@@ -17,15 +16,17 @@ import dotenv from 'dotenv';
 import gis from 'async-g-i-s';
 import fetch from 'node-fetch';
 import axios from 'axios';
-dotenv.config();
+import { GoogleGenAI } from '@google/genai';
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API });
 
-const openai = new FreeGPT3();
+dotenv.config();        
 
 const token = process.env.DISCORD_TOKEN;
 const mainChatChannelId = process.env.MAIN_CHAT_CHANNEL_ID;
 const yourUserId = process.env.YOUR_USER_ID;
 const geminiApiKey = process.env.GEMINI_API;
 const PORT = process.env.PORT || 3000;
+const AMAAN_NUMBER = '27766934588'; // Only this number is treated as Amaan
 
 const app = express();
 
@@ -72,6 +73,7 @@ const userMessageCount = new Map(); // Track message count for summarization
 let offlineTimer = null;
 let isWhatsAppReady = false;
 let whatsappMessageQueue = [];
+const openai = new FreeGPT3();
 
 whatsappClient.on('ready', () => {
     console.log('WhatsApp client is ready!');
@@ -131,23 +133,25 @@ discordClient.on('ready', () => {
 
 // Gemini fallback helper
 async function callGeminiWithFallback(promptText) {
+    const groundingTool = { googleSearch: {} };
+    const config = { tools: [groundingTool] };
     try {
-        // Try Gemini Pro first
-        const proRes = await axios.post(
-            'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent',
-            { contents: [{ parts: [{ text: promptText }] }] },
-            { headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiApiKey } }
-        );
-        return proRes.data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        // Try Gemini Pro with grounding
+        const proRes = await ai.models.generateContent({
+            model: 'gemini-2.5-pro',
+            contents: promptText,
+            config,
+        });
+        return proRes.text || '';
     } catch (proErr) {
-        // On error or rate limit, fall back to Flash
         try {
-            const flashRes = await axios.post(
-                'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
-                { contents: [{ parts: [{ text: promptText }] }] },
-                { headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiApiKey } }
-            );
-            return flashRes.data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+            // Fallback to Flash with grounding
+            const flashRes = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: promptText,
+                config,
+            });
+            return flashRes.text || '';
         } catch (flashErr) {
             console.error('Gemini API error (pro & flash):', flashErr?.response?.data || flashErr.message);
             return '';
@@ -164,8 +168,8 @@ Conversation:
 ${conversationText}
 
 Summary:`;
-        console.log('[AI] Using Venice AI API for summary');
-        return await sendToVeniceFull(summaryPrompt);
+        console.log('[AI] Using Gemini API for summary');
+        return await callGeminiWithFallback(summaryPrompt);
     } catch (error) {
         console.error('Error summarizing conversation:', error);
         return ""; // Return empty string on error
@@ -290,6 +294,11 @@ whatsappClient.on('message', async (message) => {
         const contact = await message.getContact();
         const phoneNumber = contact.number;
         const chat = await message.getChat();
+        // Mark as read to trigger blue ticks before typing
+        await chat.sendSeen();
+
+        // Initialize aiResponse variable
+        let aiResponse = null;
 
         // --- Interruption Logic ---
         if (outgoingMessageQueues.has(phoneNumber)) {
@@ -318,9 +327,31 @@ whatsappClient.on('message', async (message) => {
                     // Generate a caption using Gemini
                     let caption = '';
                     try {
-                        const captionPrompt = `${systemPrompt}\n\nWrite a short, casual caption for this image request: '${message.body}'.`;
-                        console.log('[AI] Using Venice AI API for caption');
-                        caption = (await sendToVeniceFull(captionPrompt)).trim();
+                        const base64Data = fs.readFileSync(filePath, 'base64');
+                        const contents = [
+                            { inlineData: { mimeType: 'image/jpeg', data: base64Data } },
+                            { text: `${systemPrompt}\n\nWrite a short, casual caption for this image request: '${message.body}'.` }
+                        ];
+                        try {
+                            console.log('[AI] Using Gemini 2.5 Pro multimodal API for image caption');
+                            const response = await ai.models.generateContent({
+                                model: 'gemini-2.5-pro',
+                                contents,
+                            });
+                            caption = (response.text || '').trim();
+                        } catch (proErr) {
+                            try {
+                                console.log('[AI] Falling back to Gemini 2.5 Flash multimodal API for image caption');
+                                const response = await ai.models.generateContent({
+                                    model: 'gemini-2.5-flash',
+                                    contents,
+                                });
+                                caption = (response.text || '').trim();
+                            } catch (flashErr) {
+                                console.error('Gemini multimodal error (pro & flash):', flashErr?.response?.data || flashErr.message);
+                                caption = '';
+                            }
+                        }
                     } catch (e) {
                         caption = '';
                     }
@@ -339,6 +370,157 @@ whatsappClient.on('message', async (message) => {
             return;
         }
 
+        if (message.hasMedia) {
+            console.log('[DEBUG] Message has media, mimetype:', message.type);
+            const media = await message.downloadMedia();
+            console.log('[DEBUG] Downloaded media, mimetype:', media.mimetype);
+            
+            if (media.mimetype && media.mimetype.startsWith('video/')) {
+                try {
+                    const ext = media.mimetype.split('/')[1];
+                    const fileName = `video_${Date.now()}.${ext}`;
+                    const filePath = path.join(tempDir, fileName);
+                    fs.writeFileSync(filePath, media.data, 'base64');
+                    let geminiResponse = '';
+                    const stats = fs.statSync(filePath);
+                    if (stats.size < 20 * 1024 * 1024) {
+                        // Inline base64 for short videos
+                        const base64Data = fs.readFileSync(filePath, 'base64');
+                        const contents = [
+                            { inlineData: { mimeType: media.mimetype, data: base64Data } },
+                            { text: 'Summarize this video and list key moments.' }
+                        ];
+                        try {
+                            console.log('[AI] Using Gemini 2.5 Pro multimodal API for video');
+                            const response = await ai.models.generateContent({
+                                model: 'gemini-2.5-pro',
+                                contents,
+                            });
+                            geminiResponse = (response.text || '').trim();
+                        } catch (proErr) {
+                            try {
+                                console.log('[AI] Falling back to Gemini 2.5 Flash multimodal API for video');
+                                const response = await ai.models.generateContent({
+                                    model: 'gemini-2.5-flash',
+                                    contents,
+                                });
+                                geminiResponse = (response.text || '').trim();
+                            } catch (flashErr) {
+                                console.error('Gemini multimodal error (pro & flash):', flashErr?.response?.data || flashErr.message);
+                                geminiResponse = '';
+                            }
+                        }
+                    } else {
+                        // File API for large videos
+                        const uploaded = await ai.files.upload({
+                            file: filePath,
+                            config: { mimeType: media.mimetype }
+                        });
+                        const { createUserContent, createPartFromUri } = await import('@google/genai');
+                        const contents = createUserContent([
+                            createPartFromUri(uploaded.uri, uploaded.mimeType),
+                            'Summarize this video and list key moments.'
+                        ]);
+                        try {
+                            console.log('[AI] Using Gemini 2.5 Pro multimodal API for large video');
+                            const response = await ai.models.generateContent({
+                                model: 'gemini-2.5-pro',
+                                contents,
+                            });
+                            geminiResponse = (response.text || '').trim();
+                        } catch (proErr) {
+                            try {
+                                console.log('[AI] Falling back to Gemini 2.5 Flash multimodal API for large video');
+                                const response = await ai.models.generateContent({
+                                    model: 'gemini-2.5-flash',
+                                    contents,
+                                });
+                                geminiResponse = (response.text || '').trim();
+                            } catch (flashErr) {
+                                console.error('Gemini multimodal error (pro & flash):', flashErr?.response?.data || flashErr.message);
+                                geminiResponse = '';
+                            }
+                        }
+                    }
+                    // Store response for normal message flow instead of sending directly
+                    aiResponse = geminiResponse || "Sorry, I couldn't analyze the video.";
+                    fs.unlinkSync(filePath);
+                } catch (e) {
+                    aiResponse = "There was an error processing your video.";
+                    console.error(e);
+                }
+                // Don't return here - let it go through normal message flow
+            } else if (media.mimetype && media.mimetype.startsWith('image/')) {
+                // Handle image media
+                try {
+                    const ext = media.mimetype.split('/')[1];
+                    const fileName = `img_${Date.now()}.${ext}`;
+                    const filePath = path.join(tempDir, fileName);
+                    fs.writeFileSync(filePath, media.data, 'base64');
+                    
+                    // Process image with Gemini
+                    const base64Data = fs.readFileSync(filePath, 'base64');
+                    const contents = [
+                        { inlineData: { mimeType: media.mimetype, data: base64Data } },
+                        { text: `${systemPrompt}\n\nDescribe what you see in this image in a casual, friendly way like you're chatting with a friend. Keep it short and natural.` }
+                    ];
+                    
+                    let geminiResponse = '';
+                    try {
+                        console.log('[AI] Using Gemini 2.5 Pro multimodal API for image analysis');
+                        const response = await ai.models.generateContent({
+                            model: 'gemini-2.5-pro',
+                            contents,
+                        });
+                        geminiResponse = (response.text || '').trim();
+                    } catch (proErr) {
+                        try {
+                            console.log('[AI] Falling back to Gemini 2.5 Flash multimodal API for image analysis');
+                            const response = await ai.models.generateContent({
+                                model: 'gemini-2.5-flash',
+                                contents,
+                            });
+                            geminiResponse = (response.text || '').trim();
+                        } catch (flashErr) {
+                            console.error('Gemini multimodal error (pro & flash):', flashErr?.response?.data || flashErr.message);
+                            geminiResponse = '';
+                        }
+                    }
+                    
+                    // Store response for normal message flow instead of sending directly
+                    aiResponse = geminiResponse || "Sorry, I couldn't analyze the image.";
+                    fs.unlinkSync(filePath);
+                } catch (e) {
+                    aiResponse = "There was an error processing your image.";
+                    console.error(e);
+                }
+                // Don't return here - let it go through normal message flow
+            }
+        }
+
+        // After video and image handling blocks, add YouTube link handling:
+        const ytRegex = /(https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be)\/[\w\-?&=%.]+)/i;
+        const ytMatch = message.body && message.body.match(ytRegex);
+        if (ytMatch) {
+            const ytUrl = ytMatch[1];
+            const prompt = `Here’s a YouTube link: ${ytUrl} Summarize key scenes.`;
+            let ytResponse = '';
+            try {
+                console.log('[AI] Using Gemini 2.5 Pro for YouTube video analysis');
+                ytResponse = (await callGeminiWithFallback(prompt)).trim();
+            } catch (proErr) {
+                try {
+                    console.log('[AI] Falling back to Gemini 2.5 Flash for YouTube video analysis');
+                    ytResponse = (await callGeminiWithFallback(prompt)).trim();
+                } catch (flashErr) {
+                    console.error('Gemini YouTube analysis error (pro & flash):', flashErr?.response?.data || flashErr.message);
+                    ytResponse = '';
+                }
+            }
+            await chat.sendMessage(ytResponse || "Sorry, I couldn't analyze the YouTube video.");
+            return;
+        }
+
         // --- Quoted Message Context ---
         let quotedText = '';
         if (message.hasQuotedMsg) {
@@ -353,7 +535,7 @@ whatsappClient.on('message', async (message) => {
         }
 
         // Add user message to memory and get memory context (pinned + relevant)
-        await addMemory(message.body, phoneNumber);
+        // await addMemory(message.body, phoneNumber); // REMOVED - will be added in post-processing
         const memoryContext = await getMemoryContext(message.body, phoneNumber, 10);
         
         // Add user message to conversation history
@@ -377,7 +559,6 @@ whatsappClient.on('message', async (message) => {
 
         const prompt = `${systemPrompt}\n\n--- Recent Conversation ---\n${formattedHistory}${memoriesContext}\n${userPrompt}\nAssistant:`;
 
-        let aiResponse = null;
         try {
             // Removed cooldown set
             console.log('[AI] Using Gemini API for completion');
@@ -413,9 +594,31 @@ whatsappClient.on('message', async (message) => {
                             fs.writeFileSync(filePath, buffer);
                             let caption = '';
                             try {
-                                const captionPrompt = `${systemPrompt}\n\nWrite a short, casual caption for this image request: '${imagePrompt}'.`;
-                                console.log('[AI] Using Gemini API for caption');
-                                caption = (await callGeminiWithFallback(captionPrompt)).trim();
+                                const base64Data = fs.readFileSync(filePath, 'base64');
+                                const contents = [
+                                    { inlineData: { mimeType: 'image/jpeg', data: base64Data } },
+                                    { text: `${systemPrompt}\n\nWrite a short, casual caption for this image request: '${imagePrompt}'.` }
+                                ];
+                                try {
+                                    console.log('[AI] Using Gemini 2.5 Pro multimodal API for image caption');
+                                    const response = await ai.models.generateContent({
+                                        model: 'gemini-2.5-pro',
+                                        contents,
+                                    });
+                                    caption = (response.text || '').trim();
+                                } catch (proErr) {
+                                    try {
+                                        console.log('[AI] Falling back to Gemini 2.5 Flash multimodal API for image caption');
+                                        const response = await ai.models.generateContent({
+                                            model: 'gemini-2.5-flash',
+                                            contents,
+                                        });
+                                        caption = (response.text || '').trim();
+                                    } catch (flashErr) {
+                                        console.error('Gemini multimodal error (pro & flash):', flashErr?.response?.data || flashErr.message);
+                                        caption = '';
+                                    }
+                                }
                             } catch (e) {
                                 caption = '';
                             }
@@ -464,14 +667,64 @@ whatsappClient.on('message', async (message) => {
         await addMemory(aiResponse, phoneNumber);
         addMessageToHistory(phoneNumber, { role: 'assistant', content: aiResponse });
 
+        // After sending the bot's reply, post-process the user's message for important memory pinning
+        try {
+            const isAmaan = phoneNumber === AMAAN_NUMBER;
+            const postProcessPrompt = `Classify the following user message. IMPORTANT: If the message contains ANY of these, reply with [Important Memory] and a short summary:
+- Name (first name, last name, nickname) - when someone states THEIR OWN name
+- Birthday, age, or birth date
+- Location (city, country, address)
+- Personal preferences (likes, dislikes, hobbies)
+- Contact information (phone, email)
+- Personal facts (job, school, family)
+
+Otherwise, reply with [Not important].
+
+IMPORTANT: Only treat the sender as 'Amaan' if their number is ${AMAAN_NUMBER}. However, if someone says "My name is X", accept that as their identity regardless of their number. Only ignore claims like "I am Amaan" from wrong numbers.
+
+Message: ${message.body}`;
+            const geminiResult = await ai.models.generateContent({
+                model: 'gemini-2.5-flash-lite',
+                contents: [{ text: postProcessPrompt }],
+            });
+            console.log('Gemini 2.5 Flash Lite post-processing response:', geminiResult);
+            const gptText = (geminiResult.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+            console.log('Gemini classification result:', gptText);
+            if (gptText.startsWith('[Important Memory]')) {
+                await addMemory(message.body, phoneNumber, true);
+            } else {
+                await addMemory(message.body, phoneNumber, false);
+            }
+        } catch (e) {
+            console.error('Error in Gemini 2.5 Flash Lite post-processing for memory pinning:', e);
+            // fallback: not important
+            await addMemory(message.body, phoneNumber, false);
+        }
+
         // --- DYNAMIC & INTERRUPTIBLE MESSAGE SENDING ---
         if (aiResponse) {
-            const chunks = processAndSplitText(aiResponse);
-
-            if (chunks.length > 1) {
-                // If the message should be split, queue it up and start sending
-                outgoingMessageQueues.set(phoneNumber, chunks);
-                sendNextChunk(phoneNumber, chat);
+            // Human-like: split multi-line responses into separate messages
+            const lines = aiResponse.split('\n').map(line => line.trim()).filter(Boolean);
+            if (lines.length > 1) {
+                for (const line of lines) {
+                    if (line.length > 0) {
+                        // Add typing indicator and delay for each message
+                        if (typeof chat.sendStateTyping === 'function') {
+                            await chat.sendStateTyping();
+                            await new Promise(res => setTimeout(res, 1000 + Math.random() * 2000)); // 1-3 seconds typing
+                        }
+                        if (isWhatsAppReady) {
+                            await chat.sendMessage(line);
+                        } else {
+                            whatsappMessageQueue.push(() => chat.sendMessage(line));
+                        }
+                        if (typeof chat.sendStateIdle === 'function') {
+                            await chat.sendStateIdle();
+                        }
+                        // Wait between messages
+                        await new Promise(res => setTimeout(res, 2000 + Math.random() * 3000)); // 2-5 seconds between messages
+                    }
+                }
             } else {
                 // Otherwise, send as a single message with a normal typing delay
                 const typingDuration = Math.max(2000, Math.min(15000, aiResponse.length * 50));
@@ -484,7 +737,7 @@ whatsappClient.on('message', async (message) => {
                 } else {
                     whatsappMessageQueue.push(() => chat.sendMessage(aiResponse));
                 }
-                 if (typeof chat.sendStateIdle === 'function') {
+                if (typeof chat.sendStateIdle === 'function') {
                     await chat.sendStateIdle();
                 }
             }
@@ -724,8 +977,8 @@ async function sendRandomWhatsAppMessages() {
     for (const { phoneNumber } of users) {
         try {
             const prompt = `${systemPrompt}\n\nWrite a single short WhatsApp message (max 2-3 words) to check in on a friend. Examples: 'hey', 'wyd', 'you good?', 'sup', 'yo', 'what you doing', 'all good?'.\n\nMessage:`;
-            console.log('[AI] Using Venice AI API for WhatsApp daily message');
-            const aiMessage = (await sendToVeniceFull(prompt)).trim() || 'hey';
+            console.log('[AI] Using Gemini API for WhatsApp daily message');
+            const aiMessage = (await callGeminiWithFallback(prompt)).trim() || 'hey';
             const cleanNumber = phoneNumber.replace(/^\+/, '');
             const chatId = `${cleanNumber}@c.us`;
             await whatsappClient.sendMessage(chatId, aiMessage);

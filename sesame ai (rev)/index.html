@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en" class="bg-gray-900">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sesame AI Voice Call</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen flex flex-col justify-between items-center bg-gray-900 text-white">
+  <!-- Timer and Title -->
+  <div class="w-full flex flex-col items-center mt-8">
+    <h1 class="text-2xl font-semibold text-green-200" id="call-title">Maya <span id="call-timer">00:00</span></h1>
+    <span class="text-sm text-green-100 mt-1">by sesame</span>
+  </div>
+
+  <!-- Central Call Circle -->
+  <div class="flex-1 flex flex-col justify-center items-center">
+    <div id="call-circle" class="w-56 h-56 rounded-full flex items-center justify-center bg-white/10 backdrop-blur-md shadow-2xl border border-white/20 transition-all duration-300">
+      <!-- Heroicons Microphone -->
+      <svg id="mic-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-20 w-20 text-green-200">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75v2.25m0 0h3m-3 0H9m3-2.25a4.5 4.5 0 004.5-4.5V7.5a4.5 4.5 0 10-9 0v6.75a4.5 4.5 0 004.5 4.5z" />
+      </svg>
+    </div>
+    <div class="mt-4 text-green-200 text-lg" id="mic-status">Mic On</div>
+    <div class="mt-2 text-xs text-gray-400">Press <span class="font-bold">Spacebar</span> to toggle mic</div>
+  </div>
+
+  <!-- Controls -->
+  <div class="w-full flex justify-center mb-8">
+    <div class="flex gap-6 bg-white/10 backdrop-blur-md rounded-xl px-8 py-4 shadow-lg border border-white/20">
+      <button id="mute-btn" class="flex items-center gap-2 text-green-200 hover:text-green-400 focus:outline-none">
+        <!-- Heroicons Microphone (for unmuted) -->
+        <svg id="mute-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-6 w-6">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75v2.25m0 0h3m-3 0H9m3-2.25a4.5 4.5 0 004.5-4.5V7.5a4.5 4.5 0 10-9 0v6.75a4.5 4.5 0 004.5 4.5z" />
+        </svg>
+        <span>Mute</span>
+      </button>
+      <button id="end-btn" class="flex items-center gap-2 text-red-400 hover:text-red-600 focus:outline-none">
+        <!-- Heroicons Phone X Mark (end call) -->
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-6 w-6">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6.75L18 4.5m0 0l2.25 2.25M18 4.5v6.75m-6.75 6.75l-2.25 2.25m0 0L4.5 18m2.25 2.25h6.75" />
+        </svg>
+        <span>End call</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Main JS -->
+  <script src="main.js"></script>
+</body>
+</html> 

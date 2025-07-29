@@ -23,6 +23,7 @@
     "google-it": "^1.6.2",
     "node-fetch": "^2.7.0",
     "qrcode": "^1.5.3",
-    "whatsapp-web.js": "^1.23.0"
+    "whatsapp-web.js": "^1.23.0",
+    "freegptjs": "^0.0.2"
   }
 }
