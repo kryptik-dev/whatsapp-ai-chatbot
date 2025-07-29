@@ -536,10 +536,18 @@ whatsappClient.on('message', async (message) => {
 
         // Add user message to memory and get memory context (pinned + relevant)
         // await addMemory(message.body, phoneNumber); // REMOVED - will be added in post-processing
-        const memoryContext = await getMemoryContext(message.body, phoneNumber, 10);
         
-        // Add user message to conversation history
-        addMessageToHistory(phoneNumber, { role: 'user', content: message.body });
+        // Only add to memory and get context if there's actual text content
+        let memoryContext = [];
+        if (message.body && message.body.trim()) {
+            memoryContext = await getMemoryContext(message.body, phoneNumber, 10);
+            // Add user message to conversation history
+            addMessageToHistory(phoneNumber, { role: 'user', content: message.body });
+        } else if (media) {
+            // For media-only messages, add a placeholder to conversation history
+            const mediaType = media.mimetype ? media.mimetype.split('/')[0] : 'media';
+            addMessageToHistory(phoneNumber, { role: 'user', content: `[${mediaType}]` });
+        }
         
         // Get conversation history for context
         const conversationHistory = getConversationHistory(phoneNumber);
@@ -552,9 +560,9 @@ whatsappClient.on('message', async (message) => {
 
         let userPrompt = '';
         if (quotedText) {
-            userPrompt = `In reply to: ${quotedText}\nUser: ${message.body}`;
+            userPrompt = `In reply to: ${quotedText}\nUser: ${message.body || '[media]'}`;
         } else {
-            userPrompt = `User: ${message.body}`;
+            userPrompt = `User: ${message.body || '[media]'}`;
         }
 
         const prompt = `${systemPrompt}\n\n--- Recent Conversation ---\n${formattedHistory}${memoriesContext}\n${userPrompt}\nAssistant:`;
@@ -668,9 +676,11 @@ whatsappClient.on('message', async (message) => {
         addMessageToHistory(phoneNumber, { role: 'assistant', content: aiResponse });
 
         // After sending the bot's reply, post-process the user's message for important memory pinning
-        try {
-            const isAmaan = phoneNumber === AMAAN_NUMBER;
-            const postProcessPrompt = `Classify the following user message. IMPORTANT: If the message contains ANY of these, reply with [Important Memory] and a short summary:
+        // Only process if there's actual text content
+        if (message.body && message.body.trim()) {
+            try {
+                const isAmaan = phoneNumber === AMAAN_NUMBER;
+                const postProcessPrompt = `Classify the following user message. IMPORTANT: If the message contains ANY of these, reply with [Important Memory] and a short summary:
 - Name (first name, last name, nickname) - when someone states THEIR OWN name
 - Birthday, age, or birth date
 - Location (city, country, address)
@@ -683,22 +693,27 @@ Otherwise, reply with [Not important].
 IMPORTANT: Only treat the sender as 'Amaan' if their number is ${AMAAN_NUMBER}. However, if someone says "My name is X", accept that as their identity regardless of their number. Only ignore claims like "I am Amaan" from wrong numbers.
 
 Message: ${message.body}`;
-            const geminiResult = await ai.models.generateContent({
-                model: 'gemini-2.5-flash-lite',
-                contents: [{ text: postProcessPrompt }],
-            });
-            console.log('Gemini 2.5 Flash Lite post-processing response:', geminiResult);
-            const gptText = (geminiResult.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
-            console.log('Gemini classification result:', gptText);
-            if (gptText.startsWith('[Important Memory]')) {
-                await addMemory(message.body, phoneNumber, true);
-            } else {
+                const geminiResult = await ai.models.generateContent({
+                    model: 'gemini-2.5-flash-lite',
+                    contents: [{ text: postProcessPrompt }],
+                });
+                console.log('Gemini 2.5 Flash Lite post-processing response:', geminiResult);
+                const gptText = (geminiResult.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+                console.log('Gemini classification result:', gptText);
+                if (gptText.startsWith('[Important Memory]')) {
+                    await addMemory(message.body, phoneNumber, true);
+                } else {
+                    await addMemory(message.body, phoneNumber, false);
+                }
+            } catch (e) {
+                console.error('Error in Gemini 2.5 Flash Lite post-processing for memory pinning:', e);
+                // fallback: not important
                 await addMemory(message.body, phoneNumber, false);
             }
-        } catch (e) {
-            console.error('Error in Gemini 2.5 Flash Lite post-processing for memory pinning:', e);
-            // fallback: not important
-            await addMemory(message.body, phoneNumber, false);
+        } else if (media) {
+            // For media-only messages, just add a simple entry without pinning
+            const mediaType = media.mimetype ? media.mimetype.split('/')[0] : 'media';
+            await addMemory(`[${mediaType} message]`, phoneNumber, false);
         }
 
         // --- DYNAMIC & INTERRUPTIBLE MESSAGE SENDING ---
