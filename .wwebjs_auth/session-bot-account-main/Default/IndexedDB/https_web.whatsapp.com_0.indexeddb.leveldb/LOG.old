@@ -1,15 +1,26 @@
-2025/07/30-20:28:42.269 121c Reusing MANIFEST D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
-2025/07/30-20:28:42.269 121c Recovering log #244
-2025/07/30-20:28:42.383 121c Reusing old log D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/000244.log 
-2025/07/30-20:28:47.339 1a90 Manual compaction at level-0 from '\x00T\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00U\x00\x00\x00' @ 0 : 0; will stop at (end)
-2025/07/30-20:32:21.707 3eb0 Level-0 table #250: started
-2025/07/30-20:32:21.734 3eb0 Level-0 table #250: 1367129 bytes OK
-2025/07/30-20:32:21.737 3eb0 Delete type=0 #244
-2025/07/30-20:32:22.788 5cc Compacting 1@1 + 2@2 files
-2025/07/30-20:32:22.883 5cc Generated table #251@1: 70728 keys, 2256444 bytes
-2025/07/30-20:32:22.909 5cc Generated table #252@1: 12615 keys, 573878 bytes
-2025/07/30-20:32:22.909 5cc Compacted 1@1 + 2@2 files => 2830322 bytes
-2025/07/30-20:32:22.909 5cc compacted to: files[ 0 0 2 0 0 0 0 ]
-2025/07/30-20:32:22.909 5cc Delete type=2 #246
-2025/07/30-20:32:22.909 5cc Delete type=2 #247
-2025/07/30-20:32:22.909 5cc Delete type=2 #250
+2025/07/30-20:35:44.819 4780 Reusing MANIFEST D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
+2025/07/30-20:35:44.820 4780 Recovering log #249
+2025/07/30-20:35:44.834 4780 Reusing old log D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/000249.log 
+2025/07/30-20:35:46.884 49dc Level-0 table #255: started
+2025/07/30-20:35:46.899 49dc Level-0 table #255: 246850 bytes OK
+2025/07/30-20:35:46.903 49dc Delete type=0 #249
+2025/07/30-20:35:46.904 49dc Manual compaction at level-0 from '\x00U\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00V\x00\x00\x00' @ 0 : 0; will stop at (end)
+2025/07/30-20:35:49.385 49c4 Compacting 1@1 + 2@2 files
+2025/07/30-20:35:49.468 49c4 Generated table #256@1: 71196 keys, 2259236 bytes
+2025/07/30-20:35:49.495 49c4 Generated table #257@1: 12731 keys, 606477 bytes
+2025/07/30-20:35:49.495 49c4 Compacted 1@1 + 2@2 files => 2865713 bytes
+2025/07/30-20:35:49.496 49c4 compacted to: files[ 0 0 2 0 0 0 0 ]
+2025/07/30-20:35:49.496 49c4 Delete type=2 #251
+2025/07/30-20:35:49.496 49c4 Delete type=2 #252
+2025/07/30-20:35:49.496 49c4 Delete type=2 #255
+2025/07/30-20:44:39.664 19a0 Level-0 table #259: started
+2025/07/30-20:44:39.691 19a0 Level-0 table #259: 1333336 bytes OK
+2025/07/30-20:44:39.694 19a0 Delete type=0 #254
+2025/07/30-20:44:39.910 49dc Compacting 1@1 + 2@2 files
+2025/07/30-20:44:40.008 49dc Generated table #260@1: 74419 keys, 2263918 bytes
+2025/07/30-20:44:40.040 49dc Generated table #261@1: 14578 keys, 775811 bytes
+2025/07/30-20:44:40.040 49dc Compacted 1@1 + 2@2 files => 3039729 bytes
+2025/07/30-20:44:40.040 49dc compacted to: files[ 0 0 2 0 0 0 0 ]
+2025/07/30-20:44:40.041 49dc Delete type=2 #256
+2025/07/30-20:44:40.041 49dc Delete type=2 #257
+2025/07/30-20:44:40.041 49dc Delete type=2 #259

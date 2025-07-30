@@ -163,26 +163,44 @@ async function callGeminiWithFallback(promptText) {
     const config = { tools: [groundingTool] };
     try {
         // Try Gemini Pro with grounding
+        console.log('[AI] Trying Gemini 2.5 Pro...');
         const proRes = await ai.models.generateContent({
             model: 'gemini-2.5-pro',
             contents: promptText,
             config,
         });
-        return proRes.text || '';
+        const proText = proRes.text || '';
+        if (proText.trim()) {
+            console.log('[AI] Gemini 2.5 Pro response successful');
+            return proText;
+        } else {
+            console.log('[AI] Gemini 2.5 Pro returned empty response, trying Flash...');
+        }
     } catch (proErr) {
+        console.log('[AI] Gemini 2.5 Pro failed:', proErr?.message || 'Unknown error');
         try {
             // Fallback to Flash with grounding
+            console.log('[AI] Trying Gemini 2.5 Flash...');
             const flashRes = await ai.models.generateContent({
                 model: 'gemini-2.5-flash',
                 contents: promptText,
                 config,
             });
-            return flashRes.text || '';
+            const flashText = flashRes.text || '';
+            if (flashText.trim()) {
+                console.log('[AI] Gemini 2.5 Flash response successful');
+                return flashText;
+            } else {
+                console.log('[AI] Gemini 2.5 Flash returned empty response');
+            }
         } catch (flashErr) {
-            console.error('Gemini API error (pro & flash):', flashErr?.response?.data || flashErr.message);
-            return '';
+            console.error('[AI] Gemini 2.5 Flash also failed:', flashErr?.message || 'Unknown error');
         }
     }
+    
+    // If both failed, return a natural response instead of empty string
+    console.log('[AI] Both Gemini models failed, using fallback response');
+    return "I'm having trouble thinking of what to say right now. Can you tell me more about that?";
 }
 
 async function summarizeConversation(conversationText) {
@@ -646,7 +664,7 @@ Keep your response casual and natural like you're chatting with a friend.` }
         try {
             // Removed cooldown set
             console.log('[AI] Using Gemini API for completion');
-            aiResponse = await callGeminiWithFallback(prompt) || 'Sorry, I could not generate a response.';
+            aiResponse = await callGeminiWithFallback(prompt);
 
             // --- MEMORY SEARCH TOOL HANDLING ---
             const searchRegex = /searchMemories\(['"](.+?)['"]\)/i;
@@ -656,7 +674,7 @@ Keep your response casual and natural like you're chatting with a friend.` }
                 const results = await fetchRelevantMemories(query, phoneNumber, 5);
                 const memoriesText = results.map(m => m.text).join('\n');
                 const followupPrompt = `Memory search results for "${query}":\n${memoriesText}\nContinue your response using this information.`;
-                aiResponse = await callGeminiWithFallback(followupPrompt) || 'Sorry, I could not generate a response.';
+                aiResponse = await callGeminiWithFallback(followupPrompt);
             }
 
             // --- WEB SEARCH MARKER HANDLING ---
