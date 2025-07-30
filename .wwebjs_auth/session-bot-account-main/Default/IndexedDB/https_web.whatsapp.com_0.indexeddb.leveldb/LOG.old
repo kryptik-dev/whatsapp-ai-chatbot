@@ -1,15 +1,15 @@
-2025/07/29-19:36:17.960 49d8 Reusing MANIFEST D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
-2025/07/29-19:36:17.961 49d8 Recovering log #215
-2025/07/29-19:36:18.010 49d8 Reusing old log D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/000215.log 
-2025/07/29-19:36:23.105 49d8 Level-0 table #221: started
-2025/07/29-19:36:23.116 49d8 Level-0 table #221: 367367 bytes OK
-2025/07/29-19:36:23.118 49d8 Delete type=0 #215
-2025/07/29-19:36:23.118 49d8 Manual compaction at level-0 from '\x00O\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00P\x00\x00\x00' @ 0 : 0; will stop at (end)
-2025/07/29-19:36:25.132 49d8 Compacting 1@1 + 2@2 files
-2025/07/29-19:36:25.250 49d8 Generated table #222@1: 64012 keys, 2237837 bytes
-2025/07/29-19:36:25.262 49d8 Generated table #223@1: 4090 keys, 98320 bytes
-2025/07/29-19:36:25.262 49d8 Compacted 1@1 + 2@2 files => 2336157 bytes
-2025/07/29-19:36:25.263 49d8 compacted to: files[ 0 0 2 0 0 0 0 ]
-2025/07/29-19:36:25.263 49d8 Delete type=2 #217
-2025/07/29-19:36:25.264 49d8 Delete type=2 #218
-2025/07/29-19:36:25.264 49d8 Delete type=2 #221
+2025/07/30-20:28:42.269 121c Reusing MANIFEST D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/MANIFEST-000001
+2025/07/30-20:28:42.269 121c Recovering log #244
+2025/07/30-20:28:42.383 121c Reusing old log D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\IndexedDB\https_web.whatsapp.com_0.indexeddb.leveldb/000244.log 
+2025/07/30-20:28:47.339 1a90 Manual compaction at level-0 from '\x00T\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00U\x00\x00\x00' @ 0 : 0; will stop at (end)
+2025/07/30-20:32:21.707 3eb0 Level-0 table #250: started
+2025/07/30-20:32:21.734 3eb0 Level-0 table #250: 1367129 bytes OK
+2025/07/30-20:32:21.737 3eb0 Delete type=0 #244
+2025/07/30-20:32:22.788 5cc Compacting 1@1 + 2@2 files
+2025/07/30-20:32:22.883 5cc Generated table #251@1: 70728 keys, 2256444 bytes
+2025/07/30-20:32:22.909 5cc Generated table #252@1: 12615 keys, 573878 bytes
+2025/07/30-20:32:22.909 5cc Compacted 1@1 + 2@2 files => 2830322 bytes
+2025/07/30-20:32:22.909 5cc compacted to: files[ 0 0 2 0 0 0 0 ]
+2025/07/30-20:32:22.909 5cc Delete type=2 #246
+2025/07/30-20:32:22.909 5cc Delete type=2 #247
+2025/07/30-20:32:22.909 5cc Delete type=2 #250

@@ -1,7 +1,6 @@
 import { systemPrompt } from './system_prompt.js';
 import { addMemory, fetchRelevantMemories, getPinnedMemories, getMemoryContext, getDatabaseSize, cleanOldMemories, exportMemoriesToJson, checkAndCleanupIfNeeded } from './supabase_memories.js';
 import { getConversationHistory, addMessageToHistory } from './conversation_history.js';
-import { isImageRequest, extractImagePrompt } from './image_utils.js';
 import FreeGPT3 from 'freegptjs';
 import { Client as DiscordClient, GatewayIntentBits, EmbedBuilder, AttachmentBuilder, ChannelType, PermissionsBitField, ActivityType } from 'discord.js';
 import pkg from 'whatsapp-web.js';
@@ -13,7 +12,6 @@ import fs from 'fs';
 import path from 'path';
 import express from 'express';
 import dotenv from 'dotenv';
-import gis from 'async-g-i-s';
 import fetch from 'node-fetch';
 import axios from 'axios';
 import { GoogleGenAI } from '@google/genai';
@@ -107,8 +105,30 @@ function savePingUsers(users) {
 
 // Function to randomly decide if we should reply to a message
 function shouldReplyToMessage() {
-    // 30% chance to reply to the message instead of sending a new message
-    return Math.random() < 0.3;
+    // 8% chance to reply to the message instead of sending a new message (reduced from 15%)
+    return Math.random() < 0.08;
+}
+
+// Track recently replied messages to avoid spam
+const recentlyRepliedMessages = new Set();
+const MAX_REPLIED_MESSAGES = 10; // Keep track of last 10 messages
+
+function shouldReplyToThisMessage(messageId) {
+    // Don't reply if we've already replied to this message recently
+    if (recentlyRepliedMessages.has(messageId)) {
+        return false;
+    }
+    
+    // Clean up old entries if we have too many
+    if (recentlyRepliedMessages.size >= MAX_REPLIED_MESSAGES) {
+        const firstEntry = recentlyRepliedMessages.values().next().value;
+        recentlyRepliedMessages.delete(firstEntry);
+    }
+    
+    // Add this message to tracked list
+    recentlyRepliedMessages.add(messageId);
+    
+    return shouldReplyToMessage();
 }
 
 // ---  Connection Stability & Auto-Restart ---
@@ -303,8 +323,9 @@ whatsappClient.on('message', async (message) => {
         // Mark as read to trigger blue ticks before typing
         await chat.sendSeen();
 
-        // Initialize aiResponse variable
+        // Initialize variables
         let aiResponse = null;
+        let media = null;
 
         // --- Interruption Logic ---
         if (outgoingMessageQueues.has(phoneNumber)) {
@@ -315,70 +336,9 @@ whatsappClient.on('message', async (message) => {
         if (message.fromMe) return;
 
         // --- IMAGE SEARCH HANDLING ---
-        if (isImageRequest(message.body)) {
-            // Human-like response
-            await chat.sendMessage("lemme find one");
-            const waitTime = Math.floor(Math.random() * 15000) + 15000; // 15-30 seconds
-            await new Promise(res => setTimeout(res, waitTime));
-            try {
-                const results = await gis(message.body, { query: { safe: "on" } });
-                if (results.length > 0) {
-                    const imageUrl = results[0].url;
-                    // Download image to temp folder
-                    const fileName = `img_${Date.now()}.jpg`;
-                    const filePath = path.join(tempDir, fileName);
-                    const response = await fetch(imageUrl);
-                    const buffer = await response.buffer();
-                    fs.writeFileSync(filePath, buffer);
-                    // Generate a caption using Gemini
-                    let caption = '';
-                    try {
-                        const base64Data = fs.readFileSync(filePath, 'base64');
-                        const contents = [
-                            { inlineData: { mimeType: 'image/jpeg', data: base64Data } },
-                            { text: `${systemPrompt}\n\nWrite a short, casual caption for this image request: '${message.body}'.` }
-                        ];
-                        try {
-                            console.log('[AI] Using Gemini 2.5 Pro multimodal API for image caption');
-                            const response = await ai.models.generateContent({
-                                model: 'gemini-2.5-pro',
-                                contents,
-                            });
-                            caption = (response.text || '').trim();
-                        } catch (proErr) {
-                            try {
-                                console.log('[AI] Falling back to Gemini 2.5 Flash multimodal API for image caption');
-                                const response = await ai.models.generateContent({
-                                    model: 'gemini-2.5-flash',
-                                    contents,
-                                });
-                                caption = (response.text || '').trim();
-                            } catch (flashErr) {
-                                console.error('Gemini multimodal error (pro & flash):', flashErr?.response?.data || flashErr.message);
-                                caption = '';
-                            }
-                        }
-                    } catch (e) {
-                        caption = '';
-                    }
-                    // Send image as attachment
-                    const media = await MessageMedia.fromFilePath(filePath);
-                    await chat.sendMessage(media, { caption });
-                    // Optionally, delete the temp file after sending
-                    fs.unlinkSync(filePath);
-                } else {
-                    await chat.sendMessage("sorry, i couldn't find an image for that");
-                }
-            } catch (e) {
-                await chat.sendMessage("there was an error searching for an image");
-                console.error(e);
-            }
-            return;
-        }
-
         if (message.hasMedia) {
             console.log('[DEBUG] Message has media, mimetype:', message.type);
-            const media = await message.downloadMedia();
+            media = await message.downloadMedia();
             console.log('[DEBUG] Downloaded media, mimetype:', media.mimetype);
             
             if (media.mimetype && media.mimetype.startsWith('video/')) {
@@ -456,24 +416,127 @@ whatsappClient.on('message', async (message) => {
                     console.error(e);
                 }
                 // Don't return here - let it go through normal message flow
+            } else if (media.mimetype && media.mimetype.startsWith('audio/')) {
+                // Handle audio media (voice messages, audio files)
+                console.log('[DEBUG] Processing audio message, mimetype:', media.mimetype);
+                try {
+                    const ext = media.mimetype.split('/')[1];
+                    const fileName = `audio_${Date.now()}.${ext}`;
+                    const filePath = path.join(tempDir, fileName);
+                    fs.writeFileSync(filePath, media.data, 'base64');
+                    console.log('[DEBUG] Saved audio file:', fileName);
+                    
+                    let transcription = '';
+                    const stats = fs.statSync(filePath);
+                    console.log('[DEBUG] Audio file size:', stats.size, 'bytes');
+                    
+                    if (stats.size < 20 * 1024 * 1024) {
+                        // Inline base64 for audio files < 20MB
+                        console.log('[DEBUG] Using inline base64 for audio processing');
+                        const base64Data = fs.readFileSync(filePath, 'base64');
+                        const contents = [
+                            { inlineData: { mimeType: media.mimetype, data: base64Data } },
+                            { text: `Please transcribe this audio. If it's a voice message, provide the transcription. If it's music or other audio, describe what you hear. Keep it concise.` }
+                        ];
+                        
+                        try {
+                            console.log('[AI] Using Gemini 2.5 Pro multimodal API for audio transcription');
+                            const response = await ai.models.generateContent({
+                                model: 'gemini-2.5-pro',
+                                contents,
+                            });
+                            transcription = (response.text || '').trim();
+                        } catch (proErr) {
+                            try {
+                                console.log('[AI] Falling back to Gemini 2.5 Flash multimodal API for audio transcription');
+                                const response = await ai.models.generateContent({
+                                    model: 'gemini-2.5-flash',
+                                    contents,
+                                });
+                                transcription = (response.text || '').trim();
+                            } catch (flashErr) {
+                                console.error('Gemini multimodal error (pro & flash):', flashErr?.response?.data || flashErr.message);
+                                transcription = '';
+                            }
+                        }
+                    } else {
+                        // File API for large audio files
+                        console.log('[DEBUG] Using File API for large audio processing');
+                        const uploaded = await ai.files.upload({
+                            file: filePath,
+                            config: { mimeType: media.mimetype }
+                        });
+                        const { createUserContent, createPartFromUri } = await import('@google/genai');
+                        const contents = createUserContent([
+                            createPartFromUri(uploaded.uri, uploaded.mimeType),
+                            `Please transcribe this audio. If it's a voice message, provide the transcription. If it's music or other audio, describe what you hear. Keep it concise.`
+                        ]);
+                        
+                        try {
+                            console.log('[AI] Using Gemini 2.5 Pro multimodal API for large audio');
+                            const response = await ai.models.generateContent({
+                                model: 'gemini-2.5-pro',
+                                contents,
+                            });
+                            transcription = (response.text || '').trim();
+                        } catch (proErr) {
+                            try {
+                                console.log('[AI] Falling back to Gemini 2.5 Flash multimodal API for large audio');
+                                const response = await ai.models.generateContent({
+                                    model: 'gemini-2.5-flash',
+                                    contents,
+                                });
+                                transcription = (response.text || '').trim();
+                            } catch (flashErr) {
+                                console.error('Gemini multimodal error (pro & flash):', flashErr?.response?.data || flashErr.message);
+                                transcription = '';
+                            }
+                        }
+                    }
+                    
+                    console.log('[DEBUG] Audio transcription complete:', transcription);
+                    
+                    // Set the transcription as the message body for normal conversation flow
+                    if (transcription) {
+                        message.body = `[Voice message: ${transcription}]`;
+                    } else {
+                        message.body = '[Audio message - could not transcribe]';
+                    }
+                    
+                    fs.unlinkSync(filePath);
+                } catch (e) {
+                    message.body = '[Audio message - processing error]';
+                    console.error('Audio processing error:', e);
+                }
+                // Continue with normal conversation flow instead of generating separate response
             } else if (media.mimetype && media.mimetype.startsWith('image/')) {
-                // Handle image media
+                // Handle image media (including stickers)
+                console.log('[DEBUG] Processing image/sticker message, mimetype:', media.mimetype);
                 try {
                     const ext = media.mimetype.split('/')[1];
                     const fileName = `img_${Date.now()}.${ext}`;
                     const filePath = path.join(tempDir, fileName);
                     fs.writeFileSync(filePath, media.data, 'base64');
+                    console.log('[DEBUG] Saved image/sticker file:', fileName);
                     
-                    // Process image with Gemini
+                    // Process image/sticker with Gemini
                     const base64Data = fs.readFileSync(filePath, 'base64');
                     const contents = [
                         { inlineData: { mimeType: media.mimetype, data: base64Data } },
-                        { text: `${systemPrompt}\n\nDescribe what you see in this image in a casual, friendly way like you're chatting with a friend. Keep it short and natural.` }
+                        { text: `${systemPrompt}\n\nAnalyze this sticker or image in the context of a WhatsApp conversation. Stickers are usually sent to express emotions, reactions, or responses to what was just said. 
+
+Describe:
+1. What type of sticker/image it is (emoji, cartoon, meme, etc.)
+2. The emotion, reaction, or message it conveys
+3. Any text or symbols visible
+4. How it might relate to a conversation (as a response, reaction, or expression)
+
+Keep your response casual and natural like you're chatting with a friend.` }
                     ];
                     
                     let geminiResponse = '';
                     try {
-                        console.log('[AI] Using Gemini 2.5 Pro multimodal API for image analysis');
+                        console.log('[AI] Using Gemini 2.5 Pro multimodal API for image/sticker analysis');
                         const response = await ai.models.generateContent({
                             model: 'gemini-2.5-pro',
                             contents,
@@ -481,7 +544,7 @@ whatsappClient.on('message', async (message) => {
                         geminiResponse = (response.text || '').trim();
                     } catch (proErr) {
                         try {
-                            console.log('[AI] Falling back to Gemini 2.5 Flash multimodal API for image analysis');
+                            console.log('[AI] Falling back to Gemini 2.5 Flash multimodal API for image/sticker analysis');
                             const response = await ai.models.generateContent({
                                 model: 'gemini-2.5-flash',
                                 contents,
@@ -493,14 +556,21 @@ whatsappClient.on('message', async (message) => {
                         }
                     }
                     
-                    // Store response for normal message flow instead of sending directly
-                    aiResponse = geminiResponse || "Sorry, I couldn't analyze the image.";
+                    console.log('[DEBUG] Image/sticker analysis complete:', geminiResponse);
+                    
+                    // Set the analysis as the message body for normal conversation flow
+                    if (geminiResponse) {
+                        message.body = `[Image/Sticker: ${geminiResponse}]`;
+                    } else {
+                        message.body = '[Image/Sticker message - could not analyze]';
+                    }
+                    
                     fs.unlinkSync(filePath);
                 } catch (e) {
-                    aiResponse = "There was an error processing your image.";
-                    console.error(e);
+                    message.body = '[Image/Sticker message - processing error]';
+                    console.error('Image/sticker processing error:', e);
                 }
-                // Don't return here - let it go through normal message flow
+                // Continue with normal conversation flow instead of generating separate response
             }
         }
 
@@ -589,67 +659,6 @@ whatsappClient.on('message', async (message) => {
                 aiResponse = await callGeminiWithFallback(followupPrompt) || 'Sorry, I could not generate a response.';
             }
 
-            // --- IMAGE REQUEST MARKER HANDLING ---
-            if (typeof aiResponse === 'string' && aiResponse.startsWith('[IMAGE_REQUEST:')) {
-                const match = aiResponse.match(/^[\[]IMAGE_REQUEST:(.*)\]$/);
-                if (match) {
-                    const imagePrompt = match[1].trim();
-                    await chat.sendMessage("lemme find one");
-                    const waitTime = Math.floor(Math.random() * 15000) + 15000; // 15-30 seconds
-                    await new Promise(res => setTimeout(res, waitTime));
-                    try {
-                        const results = await gis(imagePrompt, { query: { safe: "on" } });
-                        if (results.length > 0) {
-                            const imageUrl = results[0].url;
-                            const fileName = `img_${Date.now()}.jpg`;
-                            const filePath = path.join(tempDir, fileName);
-                            const response = await fetch(imageUrl);
-                            const buffer = await response.buffer();
-                            fs.writeFileSync(filePath, buffer);
-                            let caption = '';
-                            try {
-                                const base64Data = fs.readFileSync(filePath, 'base64');
-                                const contents = [
-                                    { inlineData: { mimeType: 'image/jpeg', data: base64Data } },
-                                    { text: `${systemPrompt}\n\nWrite a short, casual caption for this image request: '${imagePrompt}'.` }
-                                ];
-                                try {
-                                    console.log('[AI] Using Gemini 2.5 Pro multimodal API for image caption');
-                                    const response = await ai.models.generateContent({
-                                        model: 'gemini-2.5-pro',
-                                        contents,
-                                    });
-                                    caption = (response.text || '').trim();
-                                } catch (proErr) {
-                                    try {
-                                        console.log('[AI] Falling back to Gemini 2.5 Flash multimodal API for image caption');
-                                        const response = await ai.models.generateContent({
-                                            model: 'gemini-2.5-flash',
-                                            contents,
-                                        });
-                                        caption = (response.text || '').trim();
-                                    } catch (flashErr) {
-                                        console.error('Gemini multimodal error (pro & flash):', flashErr?.response?.data || flashErr.message);
-                                        caption = '';
-                                    }
-                                }
-                            } catch (e) {
-                                caption = '';
-                            }
-                            const media = await MessageMedia.fromFilePath(filePath);
-                            await chat.sendMessage(media, { caption });
-                            fs.unlinkSync(filePath);
-                        } else {
-                            await chat.sendMessage("sorry, i couldn't find an image for that");
-                        }
-                    } catch (e) {
-                        await chat.sendMessage("there was an error searching for an image");
-                        console.error(e);
-                    }
-                    return;
-                }
-            }
-
             // --- WEB SEARCH MARKER HANDLING ---
             if (typeof aiResponse === 'string' && aiResponse.startsWith('[WEBSEARCH:')) {
                 const match = aiResponse.match(/^[\[]WEBSEARCH:(.*)\]$/);
@@ -725,7 +734,8 @@ Message: ${message.body}`;
         // --- DYNAMIC & INTERRUPTIBLE MESSAGE SENDING ---
         if (aiResponse) {
             // Randomly decide if we should reply to the message or send a new message
-            const shouldReply = shouldReplyToMessage();
+            // Check this ONCE per message, not per line
+            const shouldReply = shouldReplyToThisMessage(message.id._serialized);
             
             // Human-like: split multi-line responses into separate messages
             const lines = aiResponse.split('\n').map(line => line.trim()).filter(Boolean);
@@ -797,6 +807,16 @@ Message: ${message.body}`;
             const embed = new EmbedBuilder()
                 .setAuthor({ name: contact.pushname || 'Unknown', iconURL: await contact.getProfilePicUrl() || undefined })
                 .setDescription(message.body)
+                .setColor(chat.isGroup ? '#FF5733' : '#33A5FF')
+                .setFooter({ text: `From: ${phoneNumber}` })
+                .setTimestamp();
+            targetChannel.send({ embeds: [embed] });
+        } else if (targetChannel && media) {
+            // Handle media-only messages for Discord logging
+            const mediaType = media.mimetype ? media.mimetype.split('/')[0] : 'media';
+            const embed = new EmbedBuilder()
+                .setAuthor({ name: contact.pushname || 'Unknown', iconURL: await contact.getProfilePicUrl() || undefined })
+                .setDescription(`📎 [${mediaType.toUpperCase()}] message`)
                 .setColor(chat.isGroup ? '#FF5733' : '#33A5FF')
                 .setFooter({ text: `From: ${phoneNumber}` })
                 .setTimestamp();

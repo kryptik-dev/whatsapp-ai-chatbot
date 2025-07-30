@@ -1,3 +1,14 @@
-2025/07/29-19:36:17.355 49d8 Reusing MANIFEST D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\Local Storage\leveldb/MANIFEST-000001
-2025/07/29-19:36:17.356 49d8 Recovering log #14
-2025/07/29-19:36:17.357 49d8 Reusing old log D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\Local Storage\leveldb/000014.log 
+2025/07/30-20:28:41.614 121c Reusing MANIFEST D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\Local Storage\leveldb/MANIFEST-000001
+2025/07/30-20:28:41.615 121c Recovering log #14
+2025/07/30-20:28:41.617 121c Reusing old log D:\whatsapp discord bot\.wwebjs_auth\session-bot-account-main\Default\Local Storage\leveldb/000014.log 
+2025/07/30-20:29:45.080 3b08 Level-0 table #17: started
+2025/07/30-20:29:45.084 3b08 Level-0 table #17: 13627 bytes OK
+2025/07/30-20:29:45.087 3b08 Delete type=0 #14
+2025/07/30-20:29:45.088 3b08 Compacting 4@0 + 0@1 files
+2025/07/30-20:29:45.094 3b08 Generated table #18@0: 143 keys, 4624 bytes
+2025/07/30-20:29:45.094 3b08 Compacted 4@0 + 0@1 files => 4624 bytes
+2025/07/30-20:29:45.095 3b08 compacted to: files[ 0 1 1 0 0 0 0 ]
+2025/07/30-20:29:45.096 3b08 Delete type=2 #7
+2025/07/30-20:29:45.096 3b08 Delete type=2 #11
+2025/07/30-20:29:45.096 3b08 Delete type=2 #13
+2025/07/30-20:29:45.096 3b08 Delete type=2 #17
