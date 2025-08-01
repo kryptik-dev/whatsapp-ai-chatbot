@@ -17,12 +17,20 @@ import axios from 'axios';
 import { GoogleGenAI } from '@google/genai';
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API });
 
-dotenv.config();        
+// OpenRouter setup for uncensored models
+import OpenAI from 'openai';
+const openRouterClient = new OpenAI({
+    baseURL: "https://openrouter.ai/api/v1",
+    apiKey: process.env.OPENROUTER_API_KEY,
+});
+
+dotenv.config();
 
 const token = process.env.DISCORD_TOKEN;
 const mainChatChannelId = process.env.MAIN_CHAT_CHANNEL_ID;
 const yourUserId = process.env.YOUR_USER_ID;
 const geminiApiKey = process.env.GEMINI_API;
+const openRouterApiKey = process.env.OPENROUTER_API_KEY;
 const PORT = process.env.PORT || 3000;
 const AMAAN_NUMBER = '27766934588'; // Only this number is treated as Amaan
 
@@ -31,10 +39,70 @@ const app = express();
 app.get('/', (req, res) => {
     res.send(`
         <html>
-            <head><title>WhatsApp Discord Bot</title></head>
-            <body style="font-family: sans-serif; text-align: center; margin-top: 10%;">
-                <h1>🤖 WhatsApp Discord Bot is running!</h1>
-                <p>If you see this page, the bot server is online and healthy.</p>
+            <head>
+                <title>WhatsApp Discord Bot</title>
+                <style>
+                    body { font-family: sans-serif; text-align: center; margin: 5% auto; max-width: 600px; }
+                    .model-info { background: #f0f0f0; padding: 20px; border-radius: 10px; margin: 20px 0; }
+                    .model-button { 
+                        background: #007bff; color: white; border: none; padding: 10px 20px; 
+                        margin: 5px; border-radius: 5px; cursor: pointer; 
+                    }
+                    .model-button:hover { background: #0056b3; }
+                    .model-button.active { background: #28a745; }
+                    .capabilities { font-size: 0.9em; color: #666; margin-top: 10px; }
+                </style>
+            </head>
+            <body>
+                <h1>🤖 WhatsApp Discord Bot</h1>
+                <p>Bot server is online and healthy.</p>
+                
+                <div class="model-info">
+                    <h3>AI Model Control</h3>
+                    <p>Current Model: <strong id="currentModel">${currentModel}</strong></p>
+                    <div id="modelButtons"></div>
+                    <div class="capabilities">
+                        <strong>Capabilities:</strong><br>
+                        <span id="capabilities">Loading...</span>
+                    </div>
+                </div>
+
+                <script>
+                    // Load current model info
+                    fetch('/model')
+                        .then(res => res.json())
+                        .then(data => {
+                            document.getElementById('currentModel').textContent = data.currentModel;
+                            
+                            const buttonsDiv = document.getElementById('modelButtons');
+                            Object.entries(data.availableModels).forEach(([model, name]) => {
+                                const btn = document.createElement('button');
+                                btn.className = 'model-button' + (model === data.currentModel ? ' active' : '');
+                                btn.textContent = name;
+                                btn.onclick = () => switchModel(model);
+                                buttonsDiv.appendChild(btn);
+                            });
+                            
+                            const caps = data.capabilities[data.currentModel].join(', ');
+                            document.getElementById('capabilities').textContent = caps;
+                        });
+
+                    function switchModel(model) {
+                        fetch('/model/switch', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ model })
+                        })
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data.success) {
+                                location.reload();
+                            } else {
+                                alert('Error switching model: ' + data.error);
+                            }
+                        });
+                    }
+                </script>
             </body>
         </html>
     `);
@@ -72,6 +140,54 @@ let offlineTimer = null;
 let isWhatsAppReady = false;
 let whatsappMessageQueue = [];
 const openai = new FreeGPT3();
+
+// Model switching functionality
+let currentModel = 'gemini-2.5-pro'; // Default to Gemini 2.5 Pro
+const AVAILABLE_MODELS = {
+    'gemini-2.5-pro': 'Gemini 2.5 Pro (Full capabilities)',
+    'gemini-2.5-flash': 'Gemini 2.5 Flash (Fast)',
+    'gemma-3-27b-it': 'Gemma 3 27B IT (Text only)',
+    'openrouter-dolphin': 'OpenRouter Dolphin (Uncensored)'
+};
+
+// Check if OpenRouter API key is available when using OpenRouter models
+if (currentModel === 'openrouter-dolphin' && !openRouterApiKey) {
+    console.warn('[WARNING] OPENROUTER_API_KEY not set. OpenRouter models will not work.');
+}
+
+// Express endpoints for model switching
+app.get('/model', (req, res) => {
+    res.json({
+        currentModel,
+        availableModels: AVAILABLE_MODELS,
+        capabilities: {
+            'gemini-2.5-pro': ['Text', 'Images', 'Videos', 'Audio', 'Web Search'],
+            'gemini-2.5-flash': ['Text', 'Images', 'Videos', 'Audio', 'Web Search'],
+            'gemma-3-27b-it': ['Text only'],
+            'openrouter-dolphin': ['Text only', 'Uncensored']
+        }
+    });
+});
+
+app.post('/model/switch', express.json(), (req, res) => {
+    const { model } = req.body;
+    if (AVAILABLE_MODELS[model]) {
+        // Check if OpenRouter API key is available when switching to OpenRouter models
+        if (model === 'openrouter-dolphin' && !openRouterApiKey) {
+            res.status(400).json({ 
+                success: false, 
+                error: 'OPENROUTER_API_KEY not set. Please add it to your environment variables.' 
+            });
+            return;
+        }
+        
+        currentModel = model;
+        console.log(`[MODEL] Switched to: ${model}`);
+        res.json({ success: true, currentModel, message: `Switched to ${AVAILABLE_MODELS[model]}` });
+    } else {
+        res.status(400).json({ success: false, error: 'Invalid model' });
+    }
+});
 
 whatsappClient.on('ready', () => {
     console.log('WhatsApp client is ready!');
@@ -159,48 +275,152 @@ discordClient.on('ready', () => {
 
 // Gemini fallback helper
 async function callGeminiWithFallback(promptText) {
+    // If using Gemma 3, use text-only completion
+    if (currentModel === 'gemma-3-27b-it') {
+        return await callGemma3(promptText);
+    }
+    
+    // If using OpenRouter Dolphin, use uncensored completion
+    if (currentModel === 'openrouter-dolphin') {
+        return await callOpenRouterDolphin(promptText);
+    }
+
     const groundingTool = { googleSearch: {} };
     const config = { tools: [groundingTool] };
     try {
         // Try Gemini Pro with grounding
-        console.log('[AI] Trying Gemini 2.5 Pro...');
+        console.log(`[AI] Trying ${currentModel}...`);
         const proRes = await ai.models.generateContent({
-            model: 'gemini-2.5-pro',
+            model: currentModel,
             contents: promptText,
             config,
         });
         const proText = proRes.text || '';
         if (proText.trim()) {
-            console.log('[AI] Gemini 2.5 Pro response successful');
+            console.log(`[AI] ${currentModel} response successful`);
             return proText;
         } else {
-            console.log('[AI] Gemini 2.5 Pro returned empty response, trying Flash...');
+            console.log(`[AI] ${currentModel} returned empty response`);
         }
     } catch (proErr) {
-        console.log('[AI] Gemini 2.5 Pro failed:', proErr?.message || 'Unknown error');
-        try {
-            // Fallback to Flash with grounding
-            console.log('[AI] Trying Gemini 2.5 Flash...');
-            const flashRes = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
-                contents: promptText,
-                config,
-            });
-            const flashText = flashRes.text || '';
-            if (flashText.trim()) {
-                console.log('[AI] Gemini 2.5 Flash response successful');
-                return flashText;
-            } else {
-                console.log('[AI] Gemini 2.5 Flash returned empty response');
-            }
+        console.log(`[AI] ${currentModel} failed:`, proErr?.message || 'Unknown error');
+        
+        // If current model is Pro, try Flash as fallback
+        if (currentModel === 'gemini-2.5-pro') {
+            try {
+                console.log('[AI] Trying Gemini 2.5 Flash as fallback...');
+                const flashRes = await ai.models.generateContent({
+                    model: 'gemini-2.5-flash',
+                    contents: promptText,
+                    config,
+                });
+                const flashText = flashRes.text || '';
+                if (flashText.trim()) {
+                    console.log('[AI] Gemini 2.5 Flash fallback successful');
+                    return flashText;
+                } else {
+                    console.log('[AI] Gemini 2.5 Flash fallback returned empty response');
+                }
         } catch (flashErr) {
-            console.error('[AI] Gemini 2.5 Flash also failed:', flashErr?.message || 'Unknown error');
+                console.error('[AI] Gemini 2.5 Flash fallback also failed:', flashErr?.message || 'Unknown error');
+            }
         }
     }
     
-    // If both failed, return a natural response instead of empty string
-    console.log('[AI] Both Gemini models failed, using fallback response');
+    // If all failed, return a natural response instead of empty string
+    console.log('[AI] All models failed, using fallback response');
     return "I'm having trouble thinking of what to say right now. Can you tell me more about that?";
+}
+
+// Gemma 3 text-only completion
+async function callGemma3(promptText) {
+    try {
+        console.log('[AI] Using Gemma 3 27B IT for text completion...');
+        const response = await ai.models.generateContent({
+            model: 'gemma-3-27b-it',
+            contents: promptText,
+        });
+        const text = response.text || '';
+        if (text.trim()) {
+            console.log('[AI] Gemma 3 response successful');
+            return text;
+        } else {
+            console.log('[AI] Gemma 3 returned empty response');
+            return "I'm having trouble thinking of what to say right now. Can you tell me more about that?";
+        }
+    } catch (error) {
+        console.error('[AI] Gemma 3 failed:', error?.message || 'Unknown error');
+        return "I'm having trouble thinking of what to say right now. Can you tell me more about that?";
+    }
+}
+
+// OpenRouter Dolphin uncensored completion
+async function callOpenRouterDolphin(promptText) {
+    try {
+        console.log('[AI] Using OpenRouter Dolphin for uncensored completion...');
+        const completion = await openRouterClient.chat.completions.create({
+            extra_headers: {
+                "HTTP-Referer": "https://whatsapp-discord-bot.com", // Optional
+                "X-Title": "WhatsApp Discord Bot", // Optional
+            },
+            model: "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
+            messages: [
+                {
+                    "role": "user",
+                    "content": promptText
+                }
+            ]
+        });
+        const text = completion.choices[0]?.message?.content || '';
+        if (text.trim()) {
+            console.log('[AI] OpenRouter Dolphin response successful');
+            return text;
+        } else {
+            console.log('[AI] OpenRouter Dolphin returned empty response');
+            return "I'm having trouble thinking of what to say right now. Can you tell me more about that?";
+        }
+    } catch (error) {
+        console.error('[AI] OpenRouter Dolphin failed:', error?.message || 'Unknown error');
+        return "I'm having trouble thinking of what to say right now. Can you tell me more about that?";
+    }
+}
+
+// Media analysis function - always uses Gemini 2.5 for media
+async function analyzeMediaWithGemini(promptText, mediaType = 'media') {
+    try {
+        console.log(`[AI] Using Gemini 2.5 Pro for ${mediaType} analysis`);
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-pro',
+            contents: promptText,
+        });
+        const text = response.text || '';
+        if (text.trim()) {
+            console.log(`[AI] Gemini 2.5 Pro ${mediaType} analysis successful`);
+            return text;
+        } else {
+            console.log(`[AI] Gemini 2.5 Pro ${mediaType} analysis returned empty response`);
+        }
+    } catch (proErr) {
+        console.log(`[AI] Gemini 2.5 Pro ${mediaType} analysis failed:`, proErr?.message || 'Unknown error');
+        try {
+            console.log(`[AI] Falling back to Gemini 2.5 Flash for ${mediaType} analysis`);
+            const flashResponse = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: promptText,
+            });
+            const flashText = flashResponse.text || '';
+            if (flashText.trim()) {
+                console.log(`[AI] Gemini 2.5 Flash ${mediaType} analysis successful`);
+                return flashText;
+            } else {
+                console.log(`[AI] Gemini 2.5 Flash ${mediaType} analysis returned empty response`);
+            }
+        } catch (flashErr) {
+            console.error(`[AI] Gemini 2.5 Flash ${mediaType} analysis also failed:`, flashErr?.message || 'Unknown error');
+        }
+    }
+    
+    return `[${mediaType} analysis failed]`;
 }
 
 async function summarizeConversation(conversationText) {
@@ -374,26 +594,7 @@ whatsappClient.on('message', async (message) => {
                             { inlineData: { mimeType: media.mimetype, data: base64Data } },
                             { text: 'Summarize this video and list key moments.' }
                         ];
-                        try {
-                            console.log('[AI] Using Gemini 2.5 Pro multimodal API for video');
-                            const response = await ai.models.generateContent({
-                                model: 'gemini-2.5-pro',
-                                contents,
-                            });
-                            geminiResponse = (response.text || '').trim();
-                        } catch (proErr) {
-                            try {
-                                console.log('[AI] Falling back to Gemini 2.5 Flash multimodal API for video');
-                                const response = await ai.models.generateContent({
-                                    model: 'gemini-2.5-flash',
-                                    contents,
-                                });
-                                geminiResponse = (response.text || '').trim();
-                            } catch (flashErr) {
-                                console.error('Gemini multimodal error (pro & flash):', flashErr?.response?.data || flashErr.message);
-                                geminiResponse = '';
-                            }
-                        }
+                        geminiResponse = await analyzeMediaWithGemini(contents, 'video');
                     } else {
                         // File API for large videos
                         const uploaded = await ai.files.upload({
@@ -405,31 +606,13 @@ whatsappClient.on('message', async (message) => {
                             createPartFromUri(uploaded.uri, uploaded.mimeType),
                             'Summarize this video and list key moments.'
                         ]);
-                        try {
-                            console.log('[AI] Using Gemini 2.5 Pro multimodal API for large video');
-                            const response = await ai.models.generateContent({
-                                model: 'gemini-2.5-pro',
-                                contents,
-                            });
-                            geminiResponse = (response.text || '').trim();
-                        } catch (proErr) {
-                            try {
-                                console.log('[AI] Falling back to Gemini 2.5 Flash multimodal API for large video');
-                                const response = await ai.models.generateContent({
-                                    model: 'gemini-2.5-flash',
-                                    contents,
-                                });
-                                geminiResponse = (response.text || '').trim();
-                            } catch (flashErr) {
-                                console.error('Gemini multimodal error (pro & flash):', flashErr?.response?.data || flashErr.message);
-                                geminiResponse = '';
-                            }
-                        }
+                        geminiResponse = await analyzeMediaWithGemini(contents, 'large video');
                     }
                     // Store response for normal message flow instead of sending directly
-                    aiResponse = geminiResponse || "Sorry, I couldn't analyze the video.";
+                    message.body = `[Video: ${geminiResponse || 'analysis failed'}]`;
+                    // Don't set aiResponse here - let the normal flow handle it
                     fs.unlinkSync(filePath);
-                } catch (e) {
+                    } catch (e) {
                     aiResponse = "There was an error processing your video.";
                     console.error(e);
                 }
@@ -457,26 +640,7 @@ whatsappClient.on('message', async (message) => {
                             { text: `Please transcribe this audio. If it's a voice message, provide the transcription. If it's music or other audio, describe what you hear. Keep it concise.` }
                         ];
                         
-                        try {
-                            console.log('[AI] Using Gemini 2.5 Pro multimodal API for audio transcription');
-                            const response = await ai.models.generateContent({
-                                model: 'gemini-2.5-pro',
-                                contents,
-                            });
-                            transcription = (response.text || '').trim();
-                        } catch (proErr) {
-                            try {
-                                console.log('[AI] Falling back to Gemini 2.5 Flash multimodal API for audio transcription');
-                                const response = await ai.models.generateContent({
-                                    model: 'gemini-2.5-flash',
-                                    contents,
-                                });
-                                transcription = (response.text || '').trim();
-                            } catch (flashErr) {
-                                console.error('Gemini multimodal error (pro & flash):', flashErr?.response?.data || flashErr.message);
-                                transcription = '';
-                            }
-                        }
+                        transcription = await analyzeMediaWithGemini(contents, 'audio transcription');
                     } else {
                         // File API for large audio files
                         console.log('[DEBUG] Using File API for large audio processing');
@@ -490,26 +654,7 @@ whatsappClient.on('message', async (message) => {
                             `Please transcribe this audio. If it's a voice message, provide the transcription. If it's music or other audio, describe what you hear. Keep it concise.`
                         ]);
                         
-                        try {
-                            console.log('[AI] Using Gemini 2.5 Pro multimodal API for large audio');
-                            const response = await ai.models.generateContent({
-                                model: 'gemini-2.5-pro',
-                                contents,
-                            });
-                            transcription = (response.text || '').trim();
-                        } catch (proErr) {
-                            try {
-                                console.log('[AI] Falling back to Gemini 2.5 Flash multimodal API for large audio');
-                                const response = await ai.models.generateContent({
-                                    model: 'gemini-2.5-flash',
-                                    contents,
-                                });
-                                transcription = (response.text || '').trim();
-                            } catch (flashErr) {
-                                console.error('Gemini multimodal error (pro & flash):', flashErr?.response?.data || flashErr.message);
-                                transcription = '';
-                            }
-                        }
+                        transcription = await analyzeMediaWithGemini(contents, 'large audio');
                     }
                     
                     console.log('[DEBUG] Audio transcription complete:', transcription);
@@ -518,7 +663,7 @@ whatsappClient.on('message', async (message) => {
                     if (transcription) {
                         message.body = `[Voice message: ${transcription}]`;
                     } else {
-                        message.body = '[Audio message - could not transcribe]';
+                        message.body = '[Audio message]';
                     }
                     
                     fs.unlinkSync(filePath);
@@ -541,50 +686,33 @@ whatsappClient.on('message', async (message) => {
                     const base64Data = fs.readFileSync(filePath, 'base64');
                     const contents = [
                         { inlineData: { mimeType: media.mimetype, data: base64Data } },
-                        { text: `${systemPrompt}\n\nAnalyze this sticker or image in the context of a WhatsApp conversation. Stickers are usually sent to express emotions, reactions, or responses to what was just said. 
+                        { text: `Analyze this image in detail. Provide a comprehensive description including:
 
-Describe:
-1. What type of sticker/image it is (emoji, cartoon, meme, etc.)
-2. The emotion, reaction, or message it conveys
-3. Any text or symbols visible
-4. How it might relate to a conversation (as a response, reaction, or expression)
+1. **Content Type**: What kind of image is this? (photo, meme, artwork, screenshot, etc.)
+2. **Genre**: If it's a photo, specify the genre (portrait, boudoir, intimate, selfie, professional, candid, etc.)
+3. **Subject Matter**: What or who is in the image? Be specific about people, objects, scenes, body parts, clothing, etc. - name the specific body parts if visible.
+4. **Visual Details**: Describe colors, lighting, composition, angles, poses, expressions, etc.
+5. **Context & Purpose**: What is the intent or purpose of this image? Is it meant to be funny, sexy, informative, etc.?
+6. **Mood/Tone**: What emotion or atmosphere does it convey?
+7. **Text/Symbols**: Any visible text, emojis, or symbols?
+8. **Quality**: Image quality, filters, effects, etc.
 
-Keep your response casual and natural like you're chatting with a friend.` }
+Be detailed and descriptive, even for NSFW or suggestive content. Don't censor or avoid describing what you see. Specifically identify the genre of photography and any visible body parts. Provide a thorough analysis that captures all the important visual elements and context.` }
                     ];
                     
-                    let geminiResponse = '';
-                    try {
-                        console.log('[AI] Using Gemini 2.5 Pro multimodal API for image/sticker analysis');
-                        const response = await ai.models.generateContent({
-                            model: 'gemini-2.5-pro',
-                            contents,
-                        });
-                        geminiResponse = (response.text || '').trim();
-                    } catch (proErr) {
-                        try {
-                            console.log('[AI] Falling back to Gemini 2.5 Flash multimodal API for image/sticker analysis');
-                            const response = await ai.models.generateContent({
-                                model: 'gemini-2.5-flash',
-                                contents,
-                            });
-                            geminiResponse = (response.text || '').trim();
-                        } catch (flashErr) {
-                            console.error('Gemini multimodal error (pro & flash):', flashErr?.response?.data || flashErr.message);
-                            geminiResponse = '';
-                        }
-                    }
+                    let geminiResponse = await analyzeMediaWithGemini(contents, 'image/sticker analysis');
                     
                     console.log('[DEBUG] Image/sticker analysis complete:', geminiResponse);
                     
                     // Set the analysis as the message body for normal conversation flow
                     if (geminiResponse) {
-                        message.body = `[Image/Sticker: ${geminiResponse}]`;
-                    } else {
-                        message.body = '[Image/Sticker message - could not analyze]';
-                    }
+                        message.body = `[Image: ${geminiResponse}]`;
+                } else {
+                        message.body = '[Image message]';
+                }
                     
                     fs.unlinkSync(filePath);
-                } catch (e) {
+            } catch (e) {
                     message.body = '[Image/Sticker message - processing error]';
                     console.error('Image/sticker processing error:', e);
                 }
@@ -598,19 +726,7 @@ Keep your response casual and natural like you're chatting with a friend.` }
         if (ytMatch) {
             const ytUrl = ytMatch[1];
             const prompt = `Here’s a YouTube link: ${ytUrl} Summarize key scenes.`;
-            let ytResponse = '';
-            try {
-                console.log('[AI] Using Gemini 2.5 Pro for YouTube video analysis');
-                ytResponse = (await callGeminiWithFallback(prompt)).trim();
-            } catch (proErr) {
-                try {
-                    console.log('[AI] Falling back to Gemini 2.5 Flash for YouTube video analysis');
-                    ytResponse = (await callGeminiWithFallback(prompt)).trim();
-                } catch (flashErr) {
-                    console.error('Gemini YouTube analysis error (pro & flash):', flashErr?.response?.data || flashErr.message);
-                    ytResponse = '';
-                }
-            }
+            let ytResponse = await analyzeMediaWithGemini(prompt, 'YouTube video analysis');
             await chat.sendMessage(ytResponse || "Sorry, I couldn't analyze the YouTube video.");
             return;
         }
@@ -635,8 +751,8 @@ Keep your response casual and natural like you're chatting with a friend.` }
         let memoryContext = [];
         if (message.body && message.body.trim()) {
             memoryContext = await getMemoryContext(message.body, phoneNumber, 10);
-            // Add user message to conversation history
-            addMessageToHistory(phoneNumber, { role: 'user', content: message.body });
+        // Add user message to conversation history
+        addMessageToHistory(phoneNumber, { role: 'user', content: message.body });
         } else if (media) {
             // For media-only messages, add a placeholder to conversation history
             const mediaType = media.mimetype ? media.mimetype.split('/')[0] : 'media';
@@ -663,7 +779,7 @@ Keep your response casual and natural like you're chatting with a friend.` }
 
         try {
             // Removed cooldown set
-            console.log('[AI] Using Gemini API for completion');
+            console.log(`[AI] Using ${currentModel} for completion`);
             aiResponse = await callGeminiWithFallback(prompt);
 
             // --- MEMORY SEARCH TOOL HANDLING ---
@@ -796,16 +912,16 @@ Message: ${message.body}`;
                     if (shouldReply) {
                         await chat.sendMessage(aiResponse, { quotedMessageId: message.id._serialized });
                     } else {
-                        await chat.sendMessage(aiResponse);
+                    await chat.sendMessage(aiResponse);
                     }
                 } else {
                     if (shouldReply) {
                         whatsappMessageQueue.push(() => chat.sendMessage(aiResponse, { quotedMessageId: message.id._serialized }));
-                    } else {
-                        whatsappMessageQueue.push(() => chat.sendMessage(aiResponse));
+                } else {
+                    whatsappMessageQueue.push(() => chat.sendMessage(aiResponse));
                     }
                 }
-                if (typeof chat.sendStateIdle === 'function') {
+                 if (typeof chat.sendStateIdle === 'function') {
                     await chat.sendStateIdle();
                 }
             }
