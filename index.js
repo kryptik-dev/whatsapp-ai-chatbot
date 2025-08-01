@@ -221,8 +221,8 @@ function savePingUsers(users) {
 
 // Function to randomly decide if we should reply to a message
 function shouldReplyToMessage() {
-    // 8% chance to reply to the message instead of sending a new message (reduced from 15%)
-    return Math.random() < 0.08;
+    // 5% chance to reply to the message instead of sending a new message (reduced from 8%)
+    return Math.random() < 0.05;
 }
 
 // Track recently replied messages to avoid spam
@@ -781,6 +781,36 @@ Be detailed and descriptive, even for NSFW or suggestive content. Don't censor o
             // Removed cooldown set
             console.log(`[AI] Using ${currentModel} for completion`);
             aiResponse = await callGeminiWithFallback(prompt);
+            
+            // Clean up the response to prevent multiple disconnected messages
+            if (aiResponse) {
+                console.log('[DEBUG] Original AI response:', aiResponse);
+                // Remove any markdown formatting or special markers
+                aiResponse = aiResponse.replace(/```[\s\S]*?```/g, '').trim();
+                // Remove any system-like responses
+                aiResponse = aiResponse.replace(/^\[.*?\]/g, '').trim();
+                // Remove any responses that look like they're from different people
+                aiResponse = aiResponse.replace(/^(User|Assistant|Bot|AI):/gi, '').trim();
+                // Remove multiple line breaks that could create separate messages
+                aiResponse = aiResponse.replace(/\n{2,}/g, ' ').trim();
+                // Limit response length to prevent overly long messages
+                if (aiResponse.length > 200) {
+                    aiResponse = aiResponse.substring(0, 200).trim();
+                    // Try to end at a sentence boundary
+                    const lastPeriod = aiResponse.lastIndexOf('.');
+                    const lastQuestion = aiResponse.lastIndexOf('?');
+                    const lastExclamation = aiResponse.lastIndexOf('!');
+                    const lastBreak = Math.max(lastPeriod, lastQuestion, lastExclamation);
+                    if (lastBreak > 100) {
+                        aiResponse = aiResponse.substring(0, lastBreak + 1);
+                    }
+                }
+                // Ensure it's not empty after cleanup
+                if (!aiResponse) {
+                    aiResponse = "I'm not sure what to say to that.";
+                }
+                console.log('[DEBUG] Cleaned AI response:', aiResponse);
+            }
 
             // --- MEMORY SEARCH TOOL HANDLING ---
             const searchRegex = /searchMemories\(['"](.+?)['"]\)/i;
@@ -871,57 +901,65 @@ Message: ${message.body}`;
             // Check this ONCE per message, not per line
             const shouldReply = shouldReplyToThisMessage(message.id._serialized);
             
-            // Human-like: split multi-line responses into separate messages
-            const lines = aiResponse.split('\n').map(line => line.trim()).filter(Boolean);
-            if (lines.length > 1) {
-                for (const line of lines) {
-                    if (line.length > 0) {
+            // Clean up the response - remove extra newlines and ensure it's a single coherent message
+            const cleanedResponse = aiResponse.replace(/\n+/g, ' ').trim();
+            
+            // Only split into multiple messages if there are clear sentence breaks and the response is long
+            const sentences = cleanedResponse.split(/[.!?]+/).map(s => s.trim()).filter(s => s.length > 0);
+            
+            if (sentences.length > 1 && cleanedResponse.length > 100) {
+                // Send as 2-3 separate messages maximum
+                const maxMessages = Math.min(sentences.length, 3);
+                for (let i = 0; i < maxMessages; i++) {
+                    if (sentences[i].length > 0) {
                         // Add typing indicator and delay for each message
                         if (typeof chat.sendStateTyping === 'function') {
                             await chat.sendStateTyping();
                             await new Promise(res => setTimeout(res, 1000 + Math.random() * 2000)); // 1-3 seconds typing
                         }
                         if (isWhatsAppReady) {
-                            if (shouldReply) {
-                                await chat.sendMessage(line, { quotedMessageId: message.id._serialized });
+                            if (shouldReply && i === 0) {
+                                await chat.sendMessage(sentences[i], { quotedMessageId: message.id._serialized });
                             } else {
-                                await chat.sendMessage(line);
+                                await chat.sendMessage(sentences[i]);
                             }
                         } else {
-                            if (shouldReply) {
-                                whatsappMessageQueue.push(() => chat.sendMessage(line, { quotedMessageId: message.id._serialized }));
+                            if (shouldReply && i === 0) {
+                                whatsappMessageQueue.push(() => chat.sendMessage(sentences[i], { quotedMessageId: message.id._serialized }));
                             } else {
-                                whatsappMessageQueue.push(() => chat.sendMessage(line));
+                                whatsappMessageQueue.push(() => chat.sendMessage(sentences[i]));
                             }
                         }
                         if (typeof chat.sendStateIdle === 'function') {
                             await chat.sendStateIdle();
                         }
                         // Wait between messages
-                        await new Promise(res => setTimeout(res, 2000 + Math.random() * 3000)); // 2-5 seconds between messages
+                        if (i < maxMessages - 1) {
+                            await new Promise(res => setTimeout(res, 2000 + Math.random() * 3000)); // 2-5 seconds between messages
+                        }
                     }
                 }
             } else {
-                // Otherwise, send as a single message with a normal typing delay
-                const typingDuration = Math.max(2000, Math.min(15000, aiResponse.length * 50));
+                // Send as a single message with a normal typing delay
+                const typingDuration = Math.max(2000, Math.min(15000, cleanedResponse.length * 50));
                 if (typeof chat.sendStateTyping === 'function') {
                     await chat.sendStateTyping();
                     await new Promise(res => setTimeout(res, typingDuration));
                 }
                 if (isWhatsAppReady) {
                     if (shouldReply) {
-                        await chat.sendMessage(aiResponse, { quotedMessageId: message.id._serialized });
+                        await chat.sendMessage(cleanedResponse, { quotedMessageId: message.id._serialized });
                     } else {
-                    await chat.sendMessage(aiResponse);
+                        await chat.sendMessage(cleanedResponse);
                     }
                 } else {
                     if (shouldReply) {
-                        whatsappMessageQueue.push(() => chat.sendMessage(aiResponse, { quotedMessageId: message.id._serialized }));
-                } else {
-                    whatsappMessageQueue.push(() => chat.sendMessage(aiResponse));
+                        whatsappMessageQueue.push(() => chat.sendMessage(cleanedResponse, { quotedMessageId: message.id._serialized }));
+                    } else {
+                        whatsappMessageQueue.push(() => chat.sendMessage(cleanedResponse));
                     }
                 }
-                 if (typeof chat.sendStateIdle === 'function') {
+                if (typeof chat.sendStateIdle === 'function') {
                     await chat.sendStateIdle();
                 }
             }
