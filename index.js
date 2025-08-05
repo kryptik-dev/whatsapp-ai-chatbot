@@ -900,14 +900,14 @@ discordClient.on('interactionCreate', async (interaction) => {
 
     if (commandName === 'stalk') {
         if (interaction.user.id !== yourUserId) {
-            return interaction.reply({ content: 'You are not authorized to use this command.', ephemeral: true });
+            return interaction.reply({ content: 'You are not authorized to use this command.', flags: 64 });
         }
         const phoneNumber = interaction.options.getString('phonenumber');
         const channelName = `stalk-${phoneNumber}`;
 
         const existingChannel = interaction.guild.channels.cache.find(ch => ch.name === channelName);
         if (existingChannel) {
-            return interaction.reply({ content: `A channel for ${phoneNumber} already exists: ${existingChannel}`, ephemeral: true });
+            return interaction.reply({ content: `A channel for ${phoneNumber} already exists: ${existingChannel}`, flags: 64 });
         }
 
         try {
@@ -927,22 +927,29 @@ discordClient.on('interactionCreate', async (interaction) => {
                 ],
             });
             stalkedUsers.add(phoneNumber);
-            interaction.reply({ content: `Created new channel for ${phoneNumber}: ${newChannel}`, ephemeral: true });
+            interaction.reply({ content: `Created new channel for ${phoneNumber}: ${newChannel}`, flags: 64 });
         } catch (error) {
             console.error('Failed to create stalk channel:', error);
-            interaction.reply({ content: 'Failed to create channel. Please check my permissions.', ephemeral: true });
+            interaction.reply({ content: 'Failed to create channel. Please check my permissions.', flags: 64 });
         }
     }
 
     if (commandName === 'connect_wa') {
         console.log('Forcing WhatsApp client to reconnect...');
+        
+        // Remove any existing event listeners to prevent duplicates
+        whatsappClient.removeAllListeners('qr');
+        whatsappClient.removeAllListeners('ready');
+        
         try {
             await whatsappClient.destroy();
         } catch (e) {
             console.log('Error destroying WhatsApp client (may be expected if not running):', e.message);
         }
-        await interaction.reply({ content: 'Connecting to WhatsApp... Please check your DMs for the QR code.', ephemeral: true });
+        
+        await interaction.reply({ content: 'Connecting to WhatsApp... Please check your DMs for the QR code.', flags: 64 });
         const user = interaction.user;
+        
         whatsappClient.once('qr', async (qr) => {
             const qrCodeImage = await QRCode.toDataURL(qr);
             const attachment = new AttachmentBuilder(Buffer.from(qrCodeImage.split(',')[1], 'base64'), { name: 'qrcode.png' });
@@ -953,12 +960,14 @@ discordClient.on('interactionCreate', async (interaction) => {
                 .setDescription('1. Open WhatsApp on your phone\n2. Tap Menu or Settings and select Linked Devices\n3. Point your phone to this screen to capture the code');
             try {
                 await user.send({ embeds: [embed], files: [attachment] });
-                interaction.followUp({ content: 'QR code sent to your DMs!', ephemeral: true });
+                // Use followUp instead of reply since interaction was already acknowledged
+                await interaction.followUp({ content: 'QR code sent to your DMs!', flags: 64 });
             } catch (error) {
                 console.error('Could not send DM to user.', error);
-                interaction.followUp({ content: 'I could not send you a DM. Please ensure your DMs are open.', ephemeral: true });
+                await interaction.followUp({ content: 'I could not send you a DM. Please ensure your DMs are open.', flags: 64 });
             }
         });
+        
         whatsappClient.once('ready', async () => {
             try {
                 await user.send('WhatsApp client is connected and ready!');
@@ -966,23 +975,28 @@ discordClient.on('interactionCreate', async (interaction) => {
                 console.error('Could not send ready message to user.', error);
             }
         });
-        whatsappClient.initialize().catch(err => {
+        
+        whatsappClient.initialize().catch(async (err) => {
             console.error('WhatsApp initialization error:', err);
-            user.send('Failed to initialize WhatsApp. Please try again.');
+            try {
+                await user.send('Failed to initialize WhatsApp. Please try again.');
+            } catch (dmError) {
+                console.error('Could not send error message to user:', dmError);
+            }
         });
     }
 
     if (commandName === 'disconnect_wa') {
         if (!whatsappClient.pupPage) {
-            return interaction.reply({ content: 'WhatsApp client is not connected.', ephemeral: true });
+            return interaction.reply({ content: 'WhatsApp client is not connected.', flags: 64 });
         }
         await whatsappClient.destroy();
-        return interaction.reply({ content: 'WhatsApp client has been disconnected.', ephemeral: true });
+        return interaction.reply({ content: 'WhatsApp client has been disconnected.', flags: 64 });
     }
 
     if (commandName === 'send') {
         if (!whatsappClient.pupPage) {
-            return interaction.reply({ content: 'WhatsApp is not connected. Please use `/connect_wa` first.', ephemeral: true });
+            return interaction.reply({ content: 'WhatsApp is not connected. Please use `/connect_wa` first.', flags: 64 });
         }
         const recipient = interaction.options.getString('phonenumber');
         const text = interaction.options.getString('message');
@@ -1003,7 +1017,7 @@ discordClient.on('interactionCreate', async (interaction) => {
                 .addFields({ name: 'Message', value: text })
                 .setTimestamp();
 
-            await interaction.reply({ embeds: [embed], ephemeral: true });
+            await interaction.reply({ embeds: [embed], flags: 64 });
         } catch (error) {
             console.error('Failed to send message:', error);
 
@@ -1013,7 +1027,7 @@ discordClient.on('interactionCreate', async (interaction) => {
                 .setDescription(`Failed to send message to **${recipient}**. Please ensure the number is correct and your WhatsApp client is connected.`)
                 .setTimestamp();
 
-            await interaction.reply({ embeds: [embed], ephemeral: true });
+            await interaction.reply({ embeds: [embed], flags: 64 });
         }
     }
 
@@ -1024,9 +1038,9 @@ discordClient.on('interactionCreate', async (interaction) => {
         if (!users.some(u => u.userId === userId)) {
             users.push({ userId, phoneNumber });
             savePingUsers(users);
-            await interaction.reply({ content: 'You are now registered to receive random WhatsApp messages!', ephemeral: true });
+            await interaction.reply({ content: 'You are now registered to receive random WhatsApp messages!', flags: 64 });
         } else {
-            await interaction.reply({ content: 'You are already registered.', ephemeral: true });
+            await interaction.reply({ content: 'You are already registered.', flags: 64 });
         }
         return;
     }

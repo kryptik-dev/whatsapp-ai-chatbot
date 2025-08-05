@@ -1,5 +1,5 @@
 # Use official Node.js LTS image
-FROM node:18
+FROM node:20
 
 # Set working directory
 WORKDIR /app
@@ -37,7 +37,7 @@ RUN apt-get update && apt-get install -y \
 COPY . .
 
 # Expose the Express port
-EXPOSE 3000
+EXPOSE 3200
 
 # Start the bot
 CMD ["node", "index.js"] 
