@@ -25,7 +25,7 @@ const token = process.env.DISCORD_TOKEN;
 const mainChatChannelId = process.env.MAIN_CHAT_CHANNEL_ID;
 const yourUserId = process.env.YOUR_USER_ID;
 const geminiApiKey = process.env.GEMINI_API;
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3200;
 const AMAAN_NUMBER = '27766934588'; // Only this number is treated as Amaan
 
 const app = express();
