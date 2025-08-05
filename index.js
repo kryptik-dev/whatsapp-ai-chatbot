@@ -17,12 +17,7 @@ import axios from 'axios';
 import { GoogleGenAI } from '@google/genai';
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API });
 
-// OpenRouter setup for uncensored models
-import OpenAI from 'openai';
-const openRouterClient = new OpenAI({
-    baseURL: "https://openrouter.ai/api/v1",
-    apiKey: process.env.OPENROUTER_API_KEY,
-});
+
 
 dotenv.config();
 
@@ -30,7 +25,6 @@ const token = process.env.DISCORD_TOKEN;
 const mainChatChannelId = process.env.MAIN_CHAT_CHANNEL_ID;
 const yourUserId = process.env.YOUR_USER_ID;
 const geminiApiKey = process.env.GEMINI_API;
-const openRouterApiKey = process.env.OPENROUTER_API_KEY;
 const PORT = process.env.PORT || 3000;
 const AMAAN_NUMBER = '27766934588'; // Only this number is treated as Amaan
 
@@ -58,51 +52,16 @@ app.get('/', (req, res) => {
                 <p>Bot server is online and healthy.</p>
                 
                 <div class="model-info">
-                    <h3>AI Model Control</h3>
-                    <p>Current Model: <strong id="currentModel">${currentModel}</strong></p>
-                    <div id="modelButtons"></div>
+                    <h3>AI Model Status</h3>
+                    <p>Primary Model: <strong>Gemini 2.5 Pro</strong></p>
+                    <p>Fallback Model: <strong>Gemini 2.5 Flash</strong></p>
                     <div class="capabilities">
                         <strong>Capabilities:</strong><br>
-                        <span id="capabilities">Loading...</span>
+                        <span>Text, Images, Videos, Audio, Web Search</span>
                     </div>
                 </div>
 
-                <script>
-                    // Load current model info
-                    fetch('/model')
-                        .then(res => res.json())
-                        .then(data => {
-                            document.getElementById('currentModel').textContent = data.currentModel;
-                            
-                            const buttonsDiv = document.getElementById('modelButtons');
-                            Object.entries(data.availableModels).forEach(([model, name]) => {
-                                const btn = document.createElement('button');
-                                btn.className = 'model-button' + (model === data.currentModel ? ' active' : '');
-                                btn.textContent = name;
-                                btn.onclick = () => switchModel(model);
-                                buttonsDiv.appendChild(btn);
-                            });
-                            
-                            const caps = data.capabilities[data.currentModel].join(', ');
-                            document.getElementById('capabilities').textContent = caps;
-                        });
 
-                    function switchModel(model) {
-                        fetch('/model/switch', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ model })
-                        })
-                        .then(res => res.json())
-                        .then(data => {
-                            if (data.success) {
-                                location.reload();
-                            } else {
-                                alert('Error switching model: ' + data.error);
-                            }
-                        });
-                    }
-                </script>
             </body>
         </html>
     `);
@@ -141,53 +100,10 @@ let isWhatsAppReady = false;
 let whatsappMessageQueue = [];
 const openai = new FreeGPT3();
 
-// Model switching functionality
-let currentModel = 'gemini-2.5-pro'; // Default to Gemini 2.5 Pro
-const AVAILABLE_MODELS = {
-    'gemini-2.5-pro': 'Gemini 2.5 Pro (Full capabilities)',
-    'gemini-2.5-flash': 'Gemini 2.5 Flash (Fast)',
-    'gemma-3-27b-it': 'Gemma 3 27B IT (Text only)',
-    'openrouter-dolphin': 'OpenRouter Dolphin (Uncensored)'
-};
+// AI Model Configuration
+// Always uses Gemini 2.5 Pro with Gemini 2.5 Flash fallback
 
-// Check if OpenRouter API key is available when using OpenRouter models
-if (currentModel === 'openrouter-dolphin' && !openRouterApiKey) {
-    console.warn('[WARNING] OPENROUTER_API_KEY not set. OpenRouter models will not work.');
-}
 
-// Express endpoints for model switching
-app.get('/model', (req, res) => {
-    res.json({
-        currentModel,
-        availableModels: AVAILABLE_MODELS,
-        capabilities: {
-            'gemini-2.5-pro': ['Text', 'Images', 'Videos', 'Audio', 'Web Search'],
-            'gemini-2.5-flash': ['Text', 'Images', 'Videos', 'Audio', 'Web Search'],
-            'gemma-3-27b-it': ['Text only'],
-            'openrouter-dolphin': ['Text only', 'Uncensored']
-        }
-    });
-});
-
-app.post('/model/switch', express.json(), (req, res) => {
-    const { model } = req.body;
-    if (AVAILABLE_MODELS[model]) {
-        // Check if OpenRouter API key is available when switching to OpenRouter models
-        if (model === 'openrouter-dolphin' && !openRouterApiKey) {
-            res.status(400).json({ 
-                success: false, 
-                error: 'OPENROUTER_API_KEY not set. Please add it to your environment variables.' 
-            });
-            return;
-        }
-        
-        currentModel = model;
-        console.log(`[MODEL] Switched to: ${model}`);
-        res.json({ success: true, currentModel, message: `Switched to ${AVAILABLE_MODELS[model]}` });
-    } else {
-        res.status(400).json({ success: false, error: 'Invalid model' });
-    }
-});
 
 whatsappClient.on('ready', () => {
     console.log('WhatsApp client is ready!');
@@ -275,55 +191,44 @@ discordClient.on('ready', () => {
 
 // Gemini fallback helper
 async function callGeminiWithFallback(promptText) {
-    // If using Gemma 3, use text-only completion
-    if (currentModel === 'gemma-3-27b-it') {
-        return await callGemma3(promptText);
-    }
-    
-    // If using OpenRouter Dolphin, use uncensored completion
-    if (currentModel === 'openrouter-dolphin') {
-        return await callOpenRouterDolphin(promptText);
-    }
-
     const groundingTool = { googleSearch: {} };
     const config = { tools: [groundingTool] };
+    
     try {
-        // Try Gemini Pro with grounding
-        console.log(`[AI] Trying ${currentModel}...`);
+        // Always try Gemini 2.5 Pro first
+        console.log('[AI] Trying Gemini 2.5 Pro...');
         const proRes = await ai.models.generateContent({
-            model: currentModel,
+            model: 'gemini-2.5-pro',
             contents: promptText,
             config,
         });
         const proText = proRes.text || '';
         if (proText.trim()) {
-            console.log(`[AI] ${currentModel} response successful`);
+            console.log('[AI] Gemini 2.5 Pro response successful');
             return proText;
         } else {
-            console.log(`[AI] ${currentModel} returned empty response`);
+            console.log('[AI] Gemini 2.5 Pro returned empty response');
         }
     } catch (proErr) {
-        console.log(`[AI] ${currentModel} failed:`, proErr?.message || 'Unknown error');
+        console.log('[AI] Gemini 2.5 Pro failed:', proErr?.message || 'Unknown error');
         
-        // If current model is Pro, try Flash as fallback
-        if (currentModel === 'gemini-2.5-pro') {
-            try {
-                console.log('[AI] Trying Gemini 2.5 Flash as fallback...');
-                const flashRes = await ai.models.generateContent({
-                    model: 'gemini-2.5-flash',
-                    contents: promptText,
-                    config,
-                });
-                const flashText = flashRes.text || '';
-                if (flashText.trim()) {
-                    console.log('[AI] Gemini 2.5 Flash fallback successful');
-                    return flashText;
-                } else {
-                    console.log('[AI] Gemini 2.5 Flash fallback returned empty response');
-                }
-        } catch (flashErr) {
-                console.error('[AI] Gemini 2.5 Flash fallback also failed:', flashErr?.message || 'Unknown error');
+        // Fallback to Gemini 2.5 Flash
+        try {
+            console.log('[AI] Trying Gemini 2.5 Flash as fallback...');
+            const flashRes = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: promptText,
+                config,
+            });
+            const flashText = flashRes.text || '';
+            if (flashText.trim()) {
+                console.log('[AI] Gemini 2.5 Flash fallback successful');
+                return flashText;
+            } else {
+                console.log('[AI] Gemini 2.5 Flash fallback returned empty response');
             }
+        } catch (flashErr) {
+            console.error('[AI] Gemini 2.5 Flash fallback also failed:', flashErr?.message || 'Unknown error');
         }
     }
     
@@ -332,60 +237,9 @@ async function callGeminiWithFallback(promptText) {
     return "I'm having trouble thinking of what to say right now. Can you tell me more about that?";
 }
 
-// Gemma 3 text-only completion
-async function callGemma3(promptText) {
-    try {
-        console.log('[AI] Using Gemma 3 27B IT for text completion...');
-        const response = await ai.models.generateContent({
-            model: 'gemma-3-27b-it',
-            contents: promptText,
-        });
-        const text = response.text || '';
-        if (text.trim()) {
-            console.log('[AI] Gemma 3 response successful');
-            return text;
-        } else {
-            console.log('[AI] Gemma 3 returned empty response');
-            return "I'm having trouble thinking of what to say right now. Can you tell me more about that?";
-        }
-    } catch (error) {
-        console.error('[AI] Gemma 3 failed:', error?.message || 'Unknown error');
-        return "I'm having trouble thinking of what to say right now. Can you tell me more about that?";
-    }
-}
 
-// OpenRouter Dolphin uncensored completion
-async function callOpenRouterDolphin(promptText) {
-    try {
-        console.log('[AI] Using OpenRouter Dolphin for uncensored completion...');
-        const completion = await openRouterClient.chat.completions.create({
-            extra_headers: {
-                "HTTP-Referer": "https://whatsapp-discord-bot.com", // Optional
-                "X-Title": "WhatsApp Discord Bot", // Optional
-            },
-            model: "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
-            messages: [
-                {
-                    "role": "user",
-                    "content": promptText
-                }
-            ]
-        });
-        const text = completion.choices[0]?.message?.content || '';
-        if (text.trim()) {
-            console.log('[AI] OpenRouter Dolphin response successful');
-            return text;
-        } else {
-            console.log('[AI] OpenRouter Dolphin returned empty response');
-            return "I'm having trouble thinking of what to say right now. Can you tell me more about that?";
-        }
-    } catch (error) {
-        console.error('[AI] OpenRouter Dolphin failed:', error?.message || 'Unknown error');
-        return "I'm having trouble thinking of what to say right now. Can you tell me more about that?";
-    }
-}
 
-// Media analysis function - always uses Gemini 2.5 for media
+// Media analysis function - always uses Gemini 2.5 Pro with Flash fallback
 async function analyzeMediaWithGemini(promptText, mediaType = 'media') {
     try {
         console.log(`[AI] Using Gemini 2.5 Pro for ${mediaType} analysis`);
@@ -778,8 +632,8 @@ Be detailed and descriptive, even for NSFW or suggestive content. Don't censor o
         const prompt = `${systemPrompt}\n\n--- Recent Conversation ---\n${formattedHistory}${memoriesContext}\n${userPrompt}\nAssistant:`;
 
         try {
-            // Removed cooldown set
-            console.log(`[AI] Using ${currentModel} for completion`);
+            // Always use Gemini 2.5 Pro with Flash fallback
+            console.log('[AI] Using Gemini 2.5 Pro with Flash fallback for completion');
             aiResponse = await callGeminiWithFallback(prompt);
             
             // Clean up the response to prevent multiple disconnected messages
@@ -872,12 +726,9 @@ Otherwise, reply with [Not important].
 IMPORTANT: Only treat the sender as 'Amaan' if their number is ${AMAAN_NUMBER}. However, if someone says "My name is X", accept that as their identity regardless of their number. Only ignore claims like "I am Amaan" from wrong numbers.
 
 Message: ${message.body}`;
-                const geminiResult = await ai.models.generateContent({
-                    model: 'gemini-2.5-flash-lite',
-                    contents: [{ text: postProcessPrompt }],
-                });
-                console.log('Gemini 2.5 Flash Lite post-processing response:', geminiResult);
-                const gptText = (geminiResult.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+                const geminiResult = await callGeminiWithFallback(postProcessPrompt);
+                console.log('Gemini post-processing response:', geminiResult);
+                const gptText = geminiResult.trim();
                 console.log('Gemini classification result:', gptText);
                 if (gptText.startsWith('[Important Memory]')) {
                     await addMemory(message.body, phoneNumber, true);
@@ -885,7 +736,7 @@ Message: ${message.body}`;
                     await addMemory(message.body, phoneNumber, false);
                 }
             } catch (e) {
-                console.error('Error in Gemini 2.5 Flash Lite post-processing for memory pinning:', e);
+                console.error('Error in Gemini post-processing for memory pinning:', e);
                 // fallback: not important
                 await addMemory(message.body, phoneNumber, false);
             }
@@ -1209,7 +1060,7 @@ async function sendRandomWhatsAppMessages() {
     for (const { phoneNumber } of users) {
         try {
             const prompt = `${systemPrompt}\n\nWrite a single short WhatsApp message (max 2-3 words) to check in on a friend. Examples: 'hey', 'wyd', 'you good?', 'sup', 'yo', 'what you doing', 'all good?'.\n\nMessage:`;
-            console.log('[AI] Using Gemini API for WhatsApp daily message');
+            console.log('[AI] Using Gemini 2.5 Pro with Flash fallback for WhatsApp daily message');
             const aiMessage = (await callGeminiWithFallback(prompt)).trim() || 'hey';
             const cleanNumber = phoneNumber.replace(/^\+/, '');
             const chatId = `${cleanNumber}@c.us`;
