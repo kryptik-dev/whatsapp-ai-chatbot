@@ -1,7 +1,10 @@
-require('dotenv').config({ path: './.env' });
-const { REST } = require('@discordjs/rest');
-const { Routes } = require('discord-api-types/v9');
-const { SlashCommandBuilder } = require('@discordjs/builders');
+import dotenv from 'dotenv';
+import { REST } from '@discordjs/rest';
+import { Routes } from 'discord-api-types/v9';
+import { SlashCommandBuilder } from '@discordjs/builders';
+
+dotenv.config({ path: './.env' });
+
 const clientId = '1396845385183396002';
 const guildId = '1388981256037073040';
 const token = process.env.DISCORD_TOKEN;
@@ -42,6 +45,9 @@ const commands = [
             option.setName('phonenumber')
                 .setDescription('Your WhatsApp number (with country code)')
                 .setRequired(true)),
+    new SlashCommandBuilder()
+        .setName('daily_checkin')
+        .setDescription('Manually trigger the daily check-in with tasks and weather.'),
 ].map(command => command.toJSON());
 
 const rest = new REST({ version: '9' }).setToken(token);

@@ -15,6 +15,8 @@ import dotenv from 'dotenv';
 import fetch from 'node-fetch';
 import axios from 'axios';
 import { GoogleGenAI } from '@google/genai';
+import { handleMessage as handleMilesMessage } from './handlers/chatHandler.js';
+import { reminders } from './handlers/reminders.js';
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API });
 
 
@@ -48,16 +50,16 @@ app.get('/', (req, res) => {
                 </style>
             </head>
             <body>
-                <h1>🤖 WhatsApp Discord Bot</h1>
-                <p>Bot server is online and healthy.</p>
+                <h1>🧠 Miles Assistant</h1>
+                <p>Miles is online and ready to help!</p>
                 
                 <div class="model-info">
-                    <h3>AI Model Status</h3>
-                    <p>Primary Model: <strong>Gemini 2.5 Pro</strong></p>
-                    <p>Fallback Model: <strong>Gemini 2.5 Flash</strong></p>
+                    <h3>Miles Assistant Status</h3>
+                    <p>AI Model: <strong>Gemini 2.5 Pro</strong></p>
+                    <p>Fallback: <strong>Gemini 2.5 Flash</strong></p>
                     <div class="capabilities">
                         <strong>Capabilities:</strong><br>
-                        <span>Text, Images, Videos, Audio, Web Search</span>
+                        <span>Natural conversation, Task management, Reminders, Media analysis</span>
                     </div>
                 </div>
 
@@ -106,8 +108,12 @@ const openai = new FreeGPT3();
 
 
 whatsappClient.on('ready', () => {
-    console.log('WhatsApp client is ready!');
+    console.log('Miles is ready! 🧠');
     isWhatsAppReady = true;
+    
+    // Set up WhatsApp client for reminders
+    reminders.setWhatsAppClient(whatsappClient);
+    
     // Send any queued messages
     for (const fn of whatsappMessageQueue) {
         fn();
@@ -121,7 +127,9 @@ whatsappClient.on('ready', () => {
 });
 
 const tempDir = path.join(process.cwd(), 'temp');
-if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
+if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true });
+}
 
 // Load and save ping users functions
 function loadPingUsers() {
@@ -186,6 +194,11 @@ discordClient.on('ready', () => {
         });
     }, 2 * 60 * 1000);
     scheduleDailyWhatsAppMessages();
+    
+    // Load existing reminders for Miles
+    reminders.loadExistingReminders().catch(err => {
+        console.error('Error loading existing reminders:', err);
+    });
 });
 
 
@@ -427,7 +440,44 @@ whatsappClient.on('message', async (message) => {
         // Prevent bot from replying to its own messages
         if (message.fromMe) return;
 
-        // --- IMAGE SEARCH HANDLING ---
+        // --- MILES ARCHITECTURE INTEGRATION ---
+        // Use the new Miles chat handler for natural language processing
+        console.log('[Miles] Processing message with new architecture');
+        await handleMilesMessage(message, whatsappClient);
+        
+        // --- DISCORD LOGGING ---
+        // Log all messages to Discord for monitoring
+        let targetChannel;
+        const stalkedChannelName = `stalk-${phoneNumber}`;
+        const stalkedChannel = discordClient.channels.cache.find(channel => channel.name === stalkedChannelName);
+
+        if (stalkedChannel) {
+            targetChannel = stalkedChannel;
+        } else {
+            targetChannel = discordClient.channels.cache.get(mainChatChannelId);
+        }
+
+        if (targetChannel && message.body) {
+            const embed = new EmbedBuilder()
+                .setAuthor({ name: contact.pushname || 'Unknown', iconURL: await contact.getProfilePicUrl() || undefined })
+                .setDescription(message.body)
+                .setColor(chat.isGroup ? '#FF5733' : '#33A5FF')
+                .setFooter({ text: `From: ${phoneNumber}` })
+                .setTimestamp();
+            targetChannel.send({ embeds: [embed] });
+        } else if (targetChannel && media) {
+            // Handle media-only messages for Discord logging
+            const mediaType = media.mimetype ? media.mimetype.split('/')[0] : 'media';
+            const embed = new EmbedBuilder()
+                .setAuthor({ name: contact.pushname || 'Unknown', iconURL: await contact.getProfilePicUrl() || undefined })
+                .setDescription(`📎 [${mediaType.toUpperCase()}] message`)
+                .setColor(chat.isGroup ? '#FF5733' : '#33A5FF')
+                .setFooter({ text: `From: ${phoneNumber}` })
+                .setTimestamp();
+            targetChannel.send({ embeds: [embed] });
+        }
+        
+        return; // Exit early since Miles handled the message processing
         if (message.hasMedia) {
             console.log('[DEBUG] Message has media, mimetype:', message.type);
             media = await message.downloadMedia();
@@ -815,36 +865,6 @@ Message: ${message.body}`;
                 }
             }
         }
-
-        let targetChannel;
-        const stalkedChannelName = `stalk-${phoneNumber}`;
-        const stalkedChannel = discordClient.channels.cache.find(channel => channel.name === stalkedChannelName);
-
-        if (stalkedChannel) {
-            targetChannel = stalkedChannel;
-        } else {
-            targetChannel = discordClient.channels.cache.get(mainChatChannelId);
-        }
-
-        if (targetChannel && message.body) {
-            const embed = new EmbedBuilder()
-                .setAuthor({ name: contact.pushname || 'Unknown', iconURL: await contact.getProfilePicUrl() || undefined })
-                .setDescription(message.body)
-                .setColor(chat.isGroup ? '#FF5733' : '#33A5FF')
-                .setFooter({ text: `From: ${phoneNumber}` })
-                .setTimestamp();
-            targetChannel.send({ embeds: [embed] });
-        } else if (targetChannel && media) {
-            // Handle media-only messages for Discord logging
-            const mediaType = media.mimetype ? media.mimetype.split('/')[0] : 'media';
-            const embed = new EmbedBuilder()
-                .setAuthor({ name: contact.pushname || 'Unknown', iconURL: await contact.getProfilePicUrl() || undefined })
-                .setDescription(`📎 [${mediaType.toUpperCase()}] message`)
-                .setColor(chat.isGroup ? '#FF5733' : '#33A5FF')
-                .setFooter({ text: `From: ${phoneNumber}` })
-                .setTimestamp();
-            targetChannel.send({ embeds: [embed] });
-        }
     } catch (error) {
         console.error('An error occurred while processing a message:', error);
     } finally {
@@ -1044,6 +1064,23 @@ discordClient.on('interactionCreate', async (interaction) => {
         }
         return;
     }
+
+    if (commandName === 'daily_checkin') {
+        if (interaction.user.id !== yourUserId) {
+            return interaction.reply({ content: 'You are not authorized to use this command.', flags: 64 });
+        }
+        
+        await interaction.reply({ content: 'Triggering daily check-in...', flags: 64 });
+        
+        try {
+            await reminders.sendDailyCheckin();
+            await interaction.followUp({ content: 'Daily check-in sent successfully!', flags: 64 });
+        } catch (error) {
+            console.error('Error triggering daily check-in:', error);
+            await interaction.followUp({ content: 'Error sending daily check-in.', flags: 64 });
+        }
+        return;
+    }
 });
 
 discordClient.login(token);
@@ -1074,7 +1111,7 @@ async function sendRandomWhatsAppMessages() {
     for (const { phoneNumber } of users) {
         try {
             const prompt = `${systemPrompt}\n\nWrite a single short WhatsApp message (max 2-3 words) to check in on a friend. Examples: 'hey', 'wyd', 'you good?', 'sup', 'yo', 'what you doing', 'all good?'.\n\nMessage:`;
-            console.log('[AI] Using Gemini 2.5 Pro with Flash fallback for WhatsApp daily message');
+            console.log('[Miles] Using Gemini 2.5 Pro with Flash fallback for daily check-in message');
             const aiMessage = (await callGeminiWithFallback(prompt)).trim() || 'hey';
             const cleanNumber = phoneNumber.replace(/^\+/, '');
             const chatId = `${cleanNumber}@c.us`;
