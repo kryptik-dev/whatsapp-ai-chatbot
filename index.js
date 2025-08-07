@@ -774,6 +774,8 @@ Be detailed and descriptive, even for NSFW or suggestive content. Don't censor o
             userPrompt = `User: ${message.body || '[media]'}`;
         }
 
+
+
         const prompt = `${systemPrompt}\n\n--- Recent Conversation ---\n${formattedHistory}${memoriesContext}\n${userPrompt}\nAssistant:`;
 
         try {
@@ -822,61 +824,7 @@ Be detailed and descriptive, even for NSFW or suggestive content. Don't censor o
                 aiResponse = await callGeminiWithFallback(followupPrompt);
             }
 
-            // --- TASK MANAGEMENT HANDLING ---
-            // Check if user is asking about tasks
-            const taskKeywords = ['task', 'due', 'todo', 'reminder', 'deadline', 'homework', 'assignment', 'project', 'meeting', 'appointment'];
-            const isTaskQuery = taskKeywords.some(keyword => 
-                message.body.toLowerCase().includes(keyword)
-            );
 
-            if (isTaskQuery) {
-                try {
-                    const taskSummary = await getTaskSummary(phoneNumber);
-                    
-                    // Create a task context for the AI
-                    let taskContext = '';
-                    if (taskSummary.total === 0) {
-                        taskContext = 'USER_TASK_STATUS: No tasks found. User is all caught up with no pending tasks or deadlines.';
-                    } else {
-                        taskContext = `USER_TASK_STATUS: User has ${taskSummary.total} active tasks.`;
-                        
-                        if (taskSummary.overdue > 0) {
-                            taskContext += `\nOVERDUE_TASKS (${taskSummary.overdue}):\n`;
-                            taskSummary.overdueTasks.forEach(task => {
-                                const daysOverdue = Math.floor((new Date() - new Date(task.due_date)) / (1000 * 60 * 60 * 24));
-                                taskContext += `- ${task.title} (${daysOverdue} day${daysOverdue > 1 ? 's' : ''} overdue)\n`;
-                            });
-                        }
-                        
-                        if (taskSummary.dueToday > 0) {
-                            taskContext += `\nDUE_TODAY (${taskSummary.dueToday}):\n`;
-                            taskSummary.dueTodayTasks.forEach(task => {
-                                taskContext += `- ${task.title}\n`;
-                            });
-                        }
-                        
-                        if (taskSummary.highPriority > 0) {
-                            taskContext += `\nHIGH_PRIORITY (${taskSummary.highPriority}):\n`;
-                            taskSummary.highPriorityTasks.forEach(task => {
-                                const dueText = task.due_date ? ` (due ${new Date(task.due_date).toLocaleDateString()})` : '';
-                                taskContext += `- ${task.title}${dueText}\n`;
-                            });
-                        }
-                        
-                        if (taskSummary.total > 0 && taskSummary.overdue === 0 && taskSummary.dueToday === 0 && taskSummary.highPriority === 0) {
-                            taskContext += `\nOTHER_TASKS: ${taskSummary.total} active tasks in user's list`;
-                        }
-                    }
-                    
-                    // Generate AI response with task context
-                    const taskPrompt = `${systemPrompt}\n\n--- Recent Conversation ---\n${formattedHistory}${memoriesContext}\n\n--- Task Information ---\n${taskContext}\n\nUser: ${message.body}\nAssistant:`;
-                    aiResponse = await callGeminiWithFallback(taskPrompt);
-                    
-                } catch (error) {
-                    console.error('Error getting task summary:', error);
-                    aiResponse = "Sorry, I couldn't check your tasks right now. Try again in a bit!";
-                }
-            }
 
             // --- TASK CREATION HANDLING ---
             // Check if AI response contains [TASKADD] markers
@@ -931,6 +879,129 @@ Be detailed and descriptive, even for NSFW or suggestive content. Don't censor o
                 } catch (error) {
                     console.error('Error adding tasks:', error);
                     // Keep the original response if task creation fails
+                }
+            }
+
+            // --- TASK CHECKING HANDLING ---
+            // Check if AI response contains [TASKCHECK] marker
+            if (aiResponse.includes('[TASKCHECK]')) {
+                try {
+                    const taskSummary = await getTaskSummary(phoneNumber);
+                    
+                    // Create task information for AI response
+                    let taskInfo = '';
+                    if (taskSummary.total === 0) {
+                        taskInfo = 'USER_TASK_STATUS: No tasks found. User is all caught up with no pending tasks or deadlines.';
+                    } else {
+                        taskInfo = `USER_TASK_STATUS: User has ${taskSummary.total} active tasks.`;
+                        
+                        if (taskSummary.overdue > 0) {
+                            taskInfo += `\nOVERDUE_TASKS (${taskSummary.overdue}):\n`;
+                            taskSummary.overdueTasks.forEach(task => {
+                                const daysOverdue = Math.floor((new Date() - new Date(task.due_date)) / (1000 * 60 * 60 * 24));
+                                taskInfo += `- ${task.title} (${daysOverdue} day${daysOverdue > 1 ? 's' : ''} overdue)\n`;
+                            });
+                        }
+                        
+                        if (taskSummary.dueToday > 0) {
+                            taskInfo += `\nDUE_TODAY (${taskSummary.dueToday}):\n`;
+                            taskSummary.dueTodayTasks.forEach(task => {
+                                taskInfo += `- ${task.title}\n`;
+                            });
+                        }
+                        
+                        if (taskSummary.highPriority > 0) {
+                            taskInfo += `\nHIGH_PRIORITY (${taskSummary.highPriority}):\n`;
+                            taskSummary.highPriorityTasks.forEach(task => {
+                                const dueText = task.due_date ? ` (due ${new Date(task.due_date).toLocaleDateString()})` : '';
+                                taskInfo += `- ${task.title}${dueText}\n`;
+                            });
+                        }
+                        
+                        if (taskSummary.total > 0 && taskSummary.overdue === 0 && taskSummary.dueToday === 0 && taskSummary.highPriority === 0) {
+                            taskInfo += `\nOTHER_TASKS: ${taskSummary.total} active tasks in user's list`;
+                        }
+                    }
+                    
+                    // Generate new AI response with task information
+                    const taskCheckPrompt = `${systemPrompt}\n\n--- Recent Conversation ---\n${formattedHistory}${memoriesContext}\n\n--- Task Information ---\n${taskInfo}\n\nUser: ${message.body}\nAssistant:`;
+                    aiResponse = await callGeminiWithFallback(taskCheckPrompt);
+                    
+                    // Remove [TASKCHECK] marker from response
+                    aiResponse = aiResponse.replace(/\[TASKCHECK\]/g, '').trim();
+                    
+                } catch (error) {
+                    console.error('Error checking tasks:', error);
+                    // Keep the original response if task checking fails
+                }
+            }
+
+            // --- TASK COMPLETION HANDLING ---
+            // Check if AI response contains [TASKMARK] markers
+            const taskMarkRegex = /\[TASKMARK\](.*?)(?=\[TASKMARK\]|$)/g;
+            const taskMarkMatches = [...aiResponse.matchAll(taskMarkRegex)];
+            
+            if (taskMarkMatches.length > 0) {
+                try {
+                    for (const match of taskMarkMatches) {
+                        const taskToMark = match[1].trim();
+                        if (taskToMark) {
+                            // Get all active tasks for the user
+                            const allTasks = await getTasks(phoneNumber, false);
+                            
+                            // Find the best matching task
+                            let bestMatch = null;
+                            let bestScore = 0;
+                            
+                            for (const task of allTasks) {
+                                const taskTitle = task.title.toLowerCase();
+                                const searchTerm = taskToMark.toLowerCase();
+                                
+                                // Calculate similarity score
+                                let score = 0;
+                                
+                                // Exact match gets highest score
+                                if (taskTitle === searchTerm) {
+                                    score = 100;
+                                }
+                                // Contains the search term
+                                else if (taskTitle.includes(searchTerm) || searchTerm.includes(taskTitle)) {
+                                    score = 80;
+                                }
+                                // Word-by-word matching
+                                else {
+                                    const searchWords = searchTerm.split(/\s+/);
+                                    const titleWords = taskTitle.split(/\s+/);
+                                    
+                                    for (const searchWord of searchWords) {
+                                        if (titleWords.some(titleWord => titleWord.includes(searchWord) || searchWord.includes(titleWord))) {
+                                            score += 20;
+                                        }
+                                    }
+                                }
+                                
+                                if (score > bestScore) {
+                                    bestScore = score;
+                                    bestMatch = task;
+                                }
+                            }
+                            
+                            // Mark the task as completed if we found a good match
+                            if (bestMatch && bestScore >= 20) {
+                                await completeTask(bestMatch.id, phoneNumber);
+                                console.log(`[TASK] Marked task "${bestMatch.title}" as completed`);
+                            } else {
+                                console.log(`[TASK] Could not find matching task for "${taskToMark}"`);
+                            }
+                        }
+                    }
+                    
+                    // Remove [TASKMARK] markers from response
+                    aiResponse = aiResponse.replace(/\[TASKMARK\].*?(?=\[TASKMARK\]|$)/g, '').trim();
+                    
+                } catch (error) {
+                    console.error('Error marking tasks as completed:', error);
+                    // Keep the original response if task completion fails
                 }
             }
 
