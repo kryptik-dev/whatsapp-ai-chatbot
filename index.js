@@ -1,5 +1,6 @@
 import { systemPrompt } from './system_prompt.js';
 import { addMemory, fetchRelevantMemories, getPinnedMemories, getMemoryContext, getDatabaseSize, cleanOldMemories, exportMemoriesToJson, checkAndCleanupIfNeeded } from './supabase_memories.js';
+import { getTaskSummary, getTasks, addTask, completeTask, updateTask, deleteTask } from './supabase_tasks.js';
 import { getConversationHistory, addMessageToHistory } from './conversation_history.js';
 import FreeGPT3 from 'freegptjs';
 import { Client as DiscordClient, GatewayIntentBits, EmbedBuilder, AttachmentBuilder, ChannelType, PermissionsBitField, ActivityType } from 'discord.js';
@@ -104,6 +105,100 @@ const openai = new FreeGPT3();
 
 // AI Model Configuration
 // Always uses Gemini 2.5 Pro with Gemini 2.5 Flash fallback
+
+// Helper function to parse dates from text
+function parseDateFromText(dateText) {
+    const now = new Date();
+    const lowerText = dateText.toLowerCase();
+    
+    if (lowerText === 'today') {
+        return now.toISOString();
+    }
+    
+    if (lowerText === 'tomorrow') {
+        const tomorrow = new Date(now);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        return tomorrow.toISOString();
+    }
+    
+    // Handle "in X minutes/hours/days/weeks"
+    const timeMatch = lowerText.match(/in\s+(\d+)\s+(minute|hour|day|week)s?/i);
+    if (timeMatch) {
+        const amount = parseInt(timeMatch[1]);
+        const unit = timeMatch[2];
+        const future = new Date(now);
+        
+        switch (unit) {
+            case 'minute':
+                future.setMinutes(future.getMinutes() + amount);
+                break;
+            case 'hour':
+                future.setHours(future.getHours() + amount);
+                break;
+            case 'day':
+                future.setDate(future.getDate() + amount);
+                break;
+            case 'week':
+                future.setDate(future.getDate() + (amount * 7));
+                break;
+        }
+        return future.toISOString();
+    }
+    
+    // Handle "next X" (next monday, next week, etc.)
+    if (lowerText.startsWith('next ')) {
+        const nextMatch = lowerText.match(/next\s+(\w+)/i);
+        if (nextMatch) {
+            const day = nextMatch[1];
+            if (day === 'week') {
+                const nextWeek = new Date(now);
+                nextWeek.setDate(nextWeek.getDate() + 7);
+                return nextWeek.toISOString();
+            }
+            
+            // Handle day names
+            const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+            const dayIndex = dayNames.indexOf(day);
+            if (dayIndex !== -1) {
+                const targetDay = new Date(now);
+                const currentDay = targetDay.getDay();
+                const daysToAdd = (dayIndex - currentDay + 7) % 7;
+                if (daysToAdd === 0) daysToAdd = 7; // Next week if it's today
+                targetDay.setDate(targetDay.getDate() + daysToAdd);
+                return targetDay.toISOString();
+            }
+        }
+    }
+    
+    // Handle specific dates like "March 15" or "15/3"
+    const dateMatch = lowerText.match(/(\w+)\s+(\d{1,2})/i) || lowerText.match(/(\d{1,2})\/(\d{1,2})/);
+    if (dateMatch) {
+        const targetDate = new Date(now);
+        if (dateMatch[1] && isNaN(dateMatch[1])) {
+            // Month name format
+            const monthNames = ['january', 'february', 'march', 'april', 'may', 'june', 
+                               'july', 'august', 'september', 'october', 'november', 'december'];
+            const monthIndex = monthNames.indexOf(dateMatch[1].toLowerCase());
+            if (monthIndex !== -1) {
+                targetDate.setMonth(monthIndex);
+                targetDate.setDate(parseInt(dateMatch[2]));
+            }
+        } else {
+            // MM/DD format
+            targetDate.setMonth(parseInt(dateMatch[1]) - 1);
+            targetDate.setDate(parseInt(dateMatch[2]));
+        }
+        
+        // If the date has passed this year, assume next year
+        if (targetDate < now) {
+            targetDate.setFullYear(targetDate.getFullYear() + 1);
+        }
+        
+        return targetDate.toISOString();
+    }
+    
+    return null; // Could not parse date
+}
 
 
 
@@ -725,6 +820,118 @@ Be detailed and descriptive, even for NSFW or suggestive content. Don't censor o
                 const memoriesText = results.map(m => m.text).join('\n');
                 const followupPrompt = `Memory search results for "${query}":\n${memoriesText}\nContinue your response using this information.`;
                 aiResponse = await callGeminiWithFallback(followupPrompt);
+            }
+
+            // --- TASK MANAGEMENT HANDLING ---
+            // Check if user is asking about tasks
+            const taskKeywords = ['task', 'due', 'todo', 'reminder', 'deadline', 'homework', 'assignment', 'project', 'meeting', 'appointment'];
+            const isTaskQuery = taskKeywords.some(keyword => 
+                message.body.toLowerCase().includes(keyword)
+            );
+
+            if (isTaskQuery) {
+                try {
+                    const taskSummary = await getTaskSummary(phoneNumber);
+                    
+                    // Create a task context for the AI
+                    let taskContext = '';
+                    if (taskSummary.total === 0) {
+                        taskContext = 'USER_TASK_STATUS: No tasks found. User is all caught up with no pending tasks or deadlines.';
+                    } else {
+                        taskContext = `USER_TASK_STATUS: User has ${taskSummary.total} active tasks.`;
+                        
+                        if (taskSummary.overdue > 0) {
+                            taskContext += `\nOVERDUE_TASKS (${taskSummary.overdue}):\n`;
+                            taskSummary.overdueTasks.forEach(task => {
+                                const daysOverdue = Math.floor((new Date() - new Date(task.due_date)) / (1000 * 60 * 60 * 24));
+                                taskContext += `- ${task.title} (${daysOverdue} day${daysOverdue > 1 ? 's' : ''} overdue)\n`;
+                            });
+                        }
+                        
+                        if (taskSummary.dueToday > 0) {
+                            taskContext += `\nDUE_TODAY (${taskSummary.dueToday}):\n`;
+                            taskSummary.dueTodayTasks.forEach(task => {
+                                taskContext += `- ${task.title}\n`;
+                            });
+                        }
+                        
+                        if (taskSummary.highPriority > 0) {
+                            taskContext += `\nHIGH_PRIORITY (${taskSummary.highPriority}):\n`;
+                            taskSummary.highPriorityTasks.forEach(task => {
+                                const dueText = task.due_date ? ` (due ${new Date(task.due_date).toLocaleDateString()})` : '';
+                                taskContext += `- ${task.title}${dueText}\n`;
+                            });
+                        }
+                        
+                        if (taskSummary.total > 0 && taskSummary.overdue === 0 && taskSummary.dueToday === 0 && taskSummary.highPriority === 0) {
+                            taskContext += `\nOTHER_TASKS: ${taskSummary.total} active tasks in user's list`;
+                        }
+                    }
+                    
+                    // Generate AI response with task context
+                    const taskPrompt = `${systemPrompt}\n\n--- Recent Conversation ---\n${formattedHistory}${memoriesContext}\n\n--- Task Information ---\n${taskContext}\n\nUser: ${message.body}\nAssistant:`;
+                    aiResponse = await callGeminiWithFallback(taskPrompt);
+                    
+                } catch (error) {
+                    console.error('Error getting task summary:', error);
+                    aiResponse = "Sorry, I couldn't check your tasks right now. Try again in a bit!";
+                }
+            }
+
+            // --- TASK CREATION HANDLING ---
+            // Check if AI response contains [TASKADD] markers
+            const taskAddRegex = /\[TASKADD\](.*?)(?=\[TASKADD\]|$)/g;
+            const taskMatches = [...aiResponse.matchAll(taskAddRegex)];
+            
+            if (taskMatches.length > 0) {
+                try {
+                    for (const match of taskMatches) {
+                        const taskDescription = match[1].trim();
+                        if (taskDescription) {
+                            // Extract due date from task description
+                            let dueDate = null;
+                            let cleanDescription = taskDescription;
+                            
+                            // Look for date patterns
+                            const datePatterns = [
+                                /(?:due|by|on)\s+(tomorrow|today|next\s+\w+|in\s+\d+\s+\w+)/i,
+                                /(?:due|by|on)\s+(\d{1,2}\/\d{1,2}|\d{1,2}-\d{1,2})/,
+                                /(?:due|by|on)\s+(\w+\s+\d{1,2})/,
+                                /(?:in|after)\s+(\d+)\s+(minute|hour|day|week)s?/i
+                            ];
+                            
+                            for (const pattern of datePatterns) {
+                                const dateMatch = taskDescription.match(pattern);
+                                if (dateMatch) {
+                                    const dateText = dateMatch[1];
+                                    dueDate = parseDateFromText(dateText);
+                                    cleanDescription = taskDescription.replace(pattern, '').trim();
+                                    break;
+                                }
+                            }
+                            
+                            // Determine priority based on keywords
+                            let priority = 'medium';
+                            if (cleanDescription.toLowerCase().includes('urgent') || 
+                                cleanDescription.toLowerCase().includes('asap') ||
+                                cleanDescription.toLowerCase().includes('emergency')) {
+                                priority = 'high';
+                            } else if (cleanDescription.toLowerCase().includes('low priority') ||
+                                     cleanDescription.toLowerCase().includes('when you can')) {
+                                priority = 'low';
+                            }
+                            
+                            await addTask(phoneNumber, cleanDescription, null, dueDate, priority);
+                        }
+                    }
+                    
+                    // Remove [TASKADD] markers from response
+                    aiResponse = aiResponse.replace(/\[TASKADD\].*?(?=\[TASKADD\]|$)/g, '').trim();
+                    
+                } catch (error) {
+                    console.error('Error adding tasks:', error);
+                    // Keep the original response if task creation fails
+                }
             }
 
             // --- WEB SEARCH MARKER HANDLING ---
